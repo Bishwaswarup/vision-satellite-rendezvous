@@ -200,5 +200,4 @@ Install: `pip install -r requirements.txt`
 ## Author
 
 **Bishwaswarup Nayak**  
-OUSUMS Lab, Department of Physics  
 Indian Institute of Science, Bengaluru 560012, India
