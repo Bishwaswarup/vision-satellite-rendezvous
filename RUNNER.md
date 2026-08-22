@@ -11,10 +11,10 @@ All commands are run from the **project root** (`vision-satellite-rendezvous/`).
 # Install dependencies (once)
 pip install -r requirements.txt
 
-# Run all 105 tests across all 7 phases
+# Run all 129 tests (105 core + 24 GPU renderer)
 python -m pytest tests/ -v
 
-# Run all demos (generates fig1–fig34 + GIF in outputs/)
+# Run all demos (generates fig1–fig34 + GIF + vispy figures in outputs/)
 python notebooks/phase1_demo.py
 python notebooks/phase2_demo.py
 python notebooks/phase3_demo.py
@@ -22,6 +22,7 @@ python notebooks/phase4_demo.py
 python notebooks/phase5_demo.py
 python notebooks/phase6_demo.py
 python notebooks/phase7_demo.py
+python notebooks/vispy_demo.py
 ```
 
 ---
@@ -139,9 +140,9 @@ from pose import solve_epnp
 cam   = rendezvous_camera()
 model = ariane_model()
 eye   = np.array([20., 10., 15.])
-R_gt, t_gt = look_at_rotation(eye, np.zeros(3))
+R_gt, _ = look_at_rotation(eye)
 kp3d  = model.keypoint_array
-P_cam = (R_gt @ kp3d.T).T + t_gt
+P_cam = (R_gt @ kp3d.T).T + np.array([0., 0., 20.])
 u = cam.K[0,0] * P_cam[:,0] / P_cam[:,2] + cam.K[0,2]
 v = cam.K[1,1] * P_cam[:,1] / P_cam[:,2] + cam.K[1,2]
 kp2d  = np.stack([u,v], axis=-1)
@@ -269,6 +270,51 @@ print(f'Docked:        {\"Yes @ step \" + str(res.dock_step) if res.dock_step el
 
 ---
 
+## GPU Renderer (Vispy) — Optional
+
+**What it does:** Hardware-accelerated offscreen rendering with Blinn-Phong
+shading, 2 000-point star field, Earth limb glow, and full HiDPI / Retina
+support. Platform-aware backend: osmesa/egl on Linux, auto-detect on macOS.
+Compatible with vispy ≥ 0.14 (uses TurntableCamera; PerspectiveCamera removed).
+
+```bash
+# Tests (24)
+python -m pytest tests/test_vispy.py -v
+
+# Demo → outputs/fig_vispy_six_views.png
+#         outputs/fig_vispy_compare.png
+#         outputs/fig_vispy_rotation_strip.png
+python notebooks/vispy_demo.py
+```
+
+**Key module:**
+```
+vision/vispy_renderer.py   VispyRenderer, VispyConfig, RendererMode
+```
+
+**Quick render check:**
+```bash
+python -c "
+import numpy as np
+from vision import rendezvous_camera, ariane_model, look_at_rotation
+from vision.vispy_renderer import VispyRenderer
+
+cam   = rendezvous_camera()
+rend  = VispyRenderer(cam, mode='offscreen')
+model = ariane_model()
+R, _  = look_at_rotation([0, 0, 1])
+img   = rend.render(model, R, np.array([0., 0., 20.]))
+print(f'GPU render OK — shape: {img.shape}  dtype: {img.dtype}')
+"
+```
+
+**Import check:**
+```bash
+python -c "from vision.vispy_renderer import VispyRenderer; print('Vispy renderer OK')"
+```
+
+---
+
 ## Running specific test groups
 
 ```bash
@@ -280,6 +326,12 @@ python -m pytest tests/test_phase4.py -k "ransac" -v
 
 # All EKF tests across phases
 python -m pytest tests/ -k "ekf" -v
+
+# All GPU renderer tests
+python -m pytest tests/test_vispy.py -v
+
+# Core phases only (no GPU)
+python -m pytest tests/ --ignore=tests/test_vispy.py -v
 
 # Stop on first failure
 python -m pytest tests/ -x -v
@@ -297,41 +349,44 @@ python -m pytest tests/ -v --durations=10
 
 | Figure | File | Phase | Description |
 |--------|------|-------|-------------|
-| fig1  | `fig1_periodic_orbit.png`        | 1 | HCW periodic orbit |
-| fig2  | `fig2_analytical_vs_numerical.png` | 1 | Analytical vs RK45 |
-| fig3  | `fig3_j2_disturbance.png`        | 1 | J2 perturbation drift |
-| fig4  | `fig4_j2_vs_hcw.png`             | 1 | J2 vs ideal HCW |
-| fig5  | `fig5_angular_velocity.png`      | 2 | ω(t) tumbling Ariane |
-| fig6  | `fig6_polhode.png`               | 2 | Polhode on energy ellipsoid |
-| fig7  | `fig7_euler_angles.png`          | 2 | Euler angle evolution |
-| fig8  | `fig8_conservation.png`          | 2 | Energy / momentum conservation |
-| fig9  | `fig9_body_comparison.png`       | 2 | Ariane vs CubeSat dynamics |
-| fig10 | `fig10_wireframe_views.png`      | 3 | Multi-view wireframe |
-| fig11 | `fig11_synthetic_render.png`     | 3 | Synthetic depth render |
-| fig12 | `fig12_depth_map.png`            | 3 | Depth map |
-| fig13 | `fig13_keypoints_bbox.png`       | 3 | Keypoints + bounding box |
-| fig14 | `fig14_dataset_grid.png`         | 3 | Dataset sample grid |
-| fig15 | `fig15_reprojection_overlay.png` | 4 | EPnP reprojection overlay |
-| fig16 | `fig16_error_vs_noise.png`       | 4 | Pose error vs noise level |
-| fig17 | `fig17_ransac_convergence.png`   | 4 | RANSAC best-inlier count |
-| fig18 | `fig18_repr_error_cdf.png`       | 4 | Reprojection error CDF |
-| fig19 | `fig19_ariane_pose.png`          | 4 | Full pipeline on Ariane |
-| fig20 | `fig20_ekf_error_vs_time.png`    | 5 | EKF position & attitude error |
-| fig21 | `fig21_ukf_error_vs_time.png`    | 5 | UKF position & attitude error |
-| fig22 | `fig22_ekf_vs_ukf_rmse.png`      | 5 | EKF vs UKF MC RMSE |
-| fig23 | `fig23_nis_consistency.png`      | 5 | NIS covariance consistency |
-| fig24 | `fig24_ariane_ekf_pipeline.png`  | 5 | RANSAC+EPnP → EKF pipeline |
-| fig25 | `fig25_lqr_trajectory.png`             | 6 | LQR rendezvous trajectory |
-| fig26 | `fig26_lqr_vs_mpc.png`                | 6 | LQR vs MPC comparison |
-| fig27 | `fig27_thrust_profiles.png`            | 6 | Per-axis thrust profiles |
-| fig28 | `fig28_approach_cone.png`              | 6 | MPC approach cone constraint |
-| fig29 | `fig29_ekf_lqr_pipeline.png`           | 6 | Full EKF + LQR pipeline |
-| fig30 | `fig30_fullpipeline_trajectory.png`    | 7 | Full pipeline 3-D trajectory |
-| fig31 | `fig31_range_and_error.png`            | 7 | Range + estimation error |
-| fig32 | `fig32_thrust_profiles.png`            | 7 | Thrust + cumulative Δv |
-| fig33 | `fig33_reprojection_error.png`         | 7 | EPnP reprojection error vs range |
-| fig34 | `fig34_ekf_convergence.png`            | 7 | EKF covariance convergence |
-| GIF   | `phase7_rendezvous.gif`                | 7 | Animated wireframe rendezvous |
+| fig1  | `fig1_periodic_orbit.png`          | 1   | HCW periodic orbit |
+| fig2  | `fig2_analytical_vs_numerical.png` | 1   | Analytical vs RK45 |
+| fig3  | `fig3_j2_disturbance.png`          | 1   | J2 perturbation drift |
+| fig4  | `fig4_j2_vs_hcw.png`               | 1   | J2 vs ideal HCW |
+| fig5  | `fig5_angular_velocity.png`        | 2   | ω(t) tumbling Ariane |
+| fig6  | `fig6_polhode.png`                 | 2   | Polhode on energy ellipsoid |
+| fig7  | `fig7_euler_angles.png`            | 2   | Euler angle evolution |
+| fig8  | `fig8_conservation.png`            | 2   | Energy / momentum conservation |
+| fig9  | `fig9_body_comparison.png`         | 2   | Ariane vs CubeSat dynamics |
+| fig10 | `fig10_wireframe_views.png`        | 3   | Multi-view wireframe |
+| fig11 | `fig11_synthetic_render.png`       | 3   | Synthetic depth render |
+| fig12 | `fig12_depth_map.png`              | 3   | Depth map |
+| fig13 | `fig13_keypoints_bbox.png`         | 3   | Keypoints + bounding box |
+| fig14 | `fig14_dataset_grid.png`           | 3   | Dataset sample grid |
+| fig15 | `fig15_reprojection_overlay.png`   | 4   | EPnP reprojection overlay |
+| fig16 | `fig16_error_vs_noise.png`         | 4   | Pose error vs noise level |
+| fig17 | `fig17_ransac_convergence.png`     | 4   | RANSAC best-inlier count |
+| fig18 | `fig18_repr_error_cdf.png`         | 4   | Reprojection error CDF |
+| fig19 | `fig19_ariane_pose.png`            | 4   | Full pipeline on Ariane |
+| fig20 | `fig20_ekf_error_vs_time.png`      | 5   | EKF position & attitude error |
+| fig21 | `fig21_ukf_error_vs_time.png`      | 5   | UKF position & attitude error |
+| fig22 | `fig22_ekf_vs_ukf_rmse.png`        | 5   | EKF vs UKF MC RMSE |
+| fig23 | `fig23_nis_consistency.png`        | 5   | NIS covariance consistency |
+| fig24 | `fig24_ariane_ekf_pipeline.png`    | 5   | RANSAC+EPnP → EKF pipeline |
+| fig25 | `fig25_lqr_trajectory.png`         | 6   | LQR rendezvous trajectory |
+| fig26 | `fig26_lqr_vs_mpc.png`             | 6   | LQR vs MPC comparison |
+| fig27 | `fig27_thrust_profiles.png`        | 6   | Per-axis thrust profiles |
+| fig28 | `fig28_approach_cone.png`          | 6   | MPC approach cone constraint |
+| fig29 | `fig29_ekf_lqr_pipeline.png`       | 6   | Full EKF + LQR pipeline |
+| fig30 | `fig30_fullpipeline_trajectory.png`| 7   | Full pipeline 3-D trajectory |
+| fig31 | `fig31_range_and_error.png`        | 7   | Range + estimation error |
+| fig32 | `fig32_thrust_profiles.png`        | 7   | Thrust + cumulative Δv |
+| fig33 | `fig33_reprojection_error.png`     | 7   | EPnP reprojection error vs range |
+| fig34 | `fig34_ekf_convergence.png`        | 7   | EKF covariance convergence |
+| GIF   | `phase7_rendezvous.gif`            | 7   | Animated wireframe rendezvous |
+| GPU-1 | `fig_vispy_six_views.png`         | GPU | Six-pose Blinn-Phong render grid |
+| GPU-2 | `fig_vispy_compare.png`           | GPU | CPU wireframe vs GPU shaded |
+| GPU-3 | `fig_vispy_rotation_strip.png`    | GPU | Rotation strip across yaw angles |
 
 ---
 
@@ -347,11 +402,12 @@ vision-satellite-rendezvous/
 ├── target/             Phase 2 — Rigid body attitude
 │   ├── attitude.py
 │   └── quaternion.py
-├── vision/             Phase 3 — Synthetic vision
+├── vision/             Phase 3 — Synthetic vision + GPU renderer
 │   ├── camera.py
 │   ├── body_model.py
 │   ├── renderer.py
-│   └── dataset.py
+│   ├── dataset.py
+│   └── vispy_renderer.py
 ├── pose/               Phase 4 — PnP estimation
 │   ├── epnp.py
 │   ├── ransac.py
@@ -366,9 +422,9 @@ vision-satellite-rendezvous/
 ├── simulation/         Phase 7 — Closed-loop integration
 │   ├── runner.py
 │   └── video.py
-├── tests/              105 unit tests (15 per phase)
+├── tests/              129 unit tests (15 × 7 phases + 24 GPU)
 ├── notebooks/          Demo scripts → outputs/
-├── outputs/            Generated figures (fig1–fig34 + GIF)
+├── outputs/            Generated figures (fig1–fig34, vispy figs, GIF)
 └── requirements.txt
 ```
 
@@ -377,7 +433,9 @@ vision-satellite-rendezvous/
 ## Environment notes
 
 - **Python:** 3.10 or later
-- **Dependencies:** `numpy`, `scipy`, `matplotlib`, `pytest` (see `requirements.txt`)
-- **No GPU required:** all rendering is CPU-based wireframe
+- **Core dependencies:** `numpy`, `scipy`, `matplotlib`, `pytest`
+- **GPU renderer:** `vispy >= 0.14` (optional — core phases work without it)
 - **Install:** `pip install -r requirements.txt`
 - **Working directory:** always run from the project root (the folder containing `requirements.txt`)
+- **No GPU required for core phases:** all core rendering is CPU-based wireframe
+- **GPU renderer notes:** uses osmesa/egl on Linux; auto-detects backend on macOS; HiDPI-aware on Retina displays
