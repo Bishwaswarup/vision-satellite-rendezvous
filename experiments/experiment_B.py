@@ -25,6 +25,7 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 from pathlib import Path
 
 from vision import rendezvous_camera, ariane_model, look_at_rotation
@@ -34,6 +35,31 @@ from pose.refine import refine_pose
 OUT      = Path('outputs')
 OUT.mkdir(exist_ok=True)
 
+# ── style tokens (light / professional) ───────────────────────────────────────
+BG    = '#FFFFFF'
+PANEL = '#FAFAFA'
+TEXT  = '#111111'
+MUTED = '#555555'
+GRID  = '#DDDDDD'
+C1    = '#111111'   # EPnP raw (solid)
+C2    = '#555555'   # EPnP + GN (dashed)
+ALPHA_BAND = 0.13
+
+def style_ax(ax, ylabel, title, xlabel='Pixel noise  σ  [px]'):
+    ax.set_facecolor(PANEL)
+    for spine in ax.spines.values():
+        spine.set_edgecolor(MUTED)
+        spine.set_linewidth(0.8)
+    ax.tick_params(colors=TEXT, labelsize=9.5, direction='in')
+    ax.set_ylabel(ylabel, fontsize=10.5, color=TEXT)
+    ax.set_xlabel(xlabel, fontsize=10.5, color=TEXT)
+    ax.yaxis.label.set_color(TEXT)
+    ax.xaxis.label.set_color(TEXT)
+    ax.set_title(title, color=TEXT, fontsize=11, pad=6)
+    ax.grid(True, color=GRID, linewidth=0.7, alpha=1.0)
+    ax.set_axisbelow(True)
+
+# ── setup ─────────────────────────────────────────────────────────────────────
 RNG      = np.random.default_rng(42)
 N_TRIALS = 200
 # σ=0 excluded: GN diverges from exact-zero residual (J^T J singular).
@@ -132,69 +158,52 @@ gn_rm, gn_rs = stats(results['gn']['r'])
 gn_rp_m, gn_rp_s = stats(results['gn']['rp'])
 
 # ── figure ────────────────────────────────────────────────────────────────────
-DARK  = '#0D1B2A'
-PANEL = '#162232'
-GOLD  = '#E8A020'
-BLUE  = '#5BA4CF'
-GREEN = '#4DB87A'
-GRID  = '#263A56'
-TEXT  = '#D8E4F4'
-MUTED = '#7A90AA'
+fig, axes = plt.subplots(3, 1, figsize=(9, 9), facecolor=BG)
+fig.subplots_adjust(hspace=0.50, left=0.13, right=0.96, top=0.92, bottom=0.08)
 
-# EPnP raw: dashed, slightly transparent; GN refined: solid, full opacity
-ALPHA_BAND = 0.18
-
-fig, axes = plt.subplots(3, 1, figsize=(9, 9), facecolor=DARK)
-fig.subplots_adjust(hspace=0.48, left=0.13, right=0.96, top=0.92, bottom=0.08)
-
-def style(ax, ylabel, title):
-    ax.set_facecolor(PANEL)
-    for spine in ax.spines.values():
-        spine.set_edgecolor(GRID)
-    ax.tick_params(colors=MUTED, labelsize=9.5)
-    ax.yaxis.label.set_color(TEXT)
-    ax.xaxis.label.set_color(TEXT)
-    ax.set_ylabel(ylabel, fontsize=10.5)
-    ax.set_xlabel('Pixel noise  σ  [px]', fontsize=10.5, color=TEXT)
-    ax.set_title(title, color=TEXT, fontsize=11, pad=6)
-    ax.set_xlim(sigmas[0] - 0.05, sigmas[-1] + 0.1)
-    ax.grid(True, color=GRID, linewidth=0.6, alpha=0.7)
-    ax.set_xticks(sigmas)
-
-def twin_lines(ax, x, m1, s1, m2, s2, c1, c2, lab1, lab2):
-    # raw EPnP (dashed)
-    ax.plot(x, m1, color=c1, linewidth=1.3, linestyle='--',
-            marker='o', markersize=4, label=lab1, alpha=0.75)
-    ax.fill_between(x, m1-s1, m1+s1, color=c1, alpha=ALPHA_BAND)
+def twin_lines(ax, x, m1, s1, m2, s2, lab1, lab2):
+    # raw EPnP (dashed, lighter)
+    l1, = ax.plot(x, m1, color=C1, linewidth=1.3, linestyle='--',
+                  marker='o', markersize=4, label=lab1, alpha=0.65)
+    ax.fill_between(x, m1-s1, m1+s1, color=C1, alpha=ALPHA_BAND)
     # GN refined (solid)
-    ax.plot(x, m2, color=c2, linewidth=1.8,
-            marker='o', markersize=4.5, label=lab2)
-    ax.fill_between(x, m2-s2, m2+s2, color=c2, alpha=ALPHA_BAND)
-    ax.legend(fontsize=8.5, facecolor=PANEL, edgecolor=GRID,
+    l2, = ax.plot(x, m2, color=C2, linewidth=1.8,
+                  marker='s', markersize=4.5, label=lab2)
+    ax.fill_between(x, m2-s2, m2+s2, color=C2, alpha=ALPHA_BAND)
+    # ±1σ proxy patch for legend
+    band = mpatches.Patch(facecolor=MUTED, alpha=0.30, label='±1σ band')
+    ax.legend(handles=[l1, l2, band],
+              fontsize=8.5, facecolor=PANEL, edgecolor=MUTED,
               labelcolor=TEXT, loc='upper left')
 
 # panel 1 — translation
 twin_lines(axes[0], sigmas,
            ep_tm, ep_ts, gn_tm, gn_ts,
-           MUTED, GOLD, 'EPnP (raw)', 'EPnP + GN')
-style(axes[0], 'Translation RMSE  [cm]', 'Translation error')
+           'EPnP (raw)', 'EPnP + GN')
+style_ax(axes[0], 'Translation RMSE  [cm]', 'Translation error')
+axes[0].set_xlim(sigmas[0] - 0.05, sigmas[-1] + 0.1)
+axes[0].set_xticks(sigmas)
 
 # panel 2 — rotation
 twin_lines(axes[1], sigmas,
            ep_rm, ep_rs, gn_rm, gn_rs,
-           MUTED, BLUE, 'EPnP (raw)', 'EPnP + GN')
-style(axes[1], 'Rotation RMSE  [deg]', 'Rotation error')
+           'EPnP (raw)', 'EPnP + GN')
+style_ax(axes[1], 'Rotation RMSE  [deg]', 'Rotation error')
+axes[1].set_xlim(sigmas[0] - 0.05, sigmas[-1] + 0.1)
+axes[1].set_xticks(sigmas)
 
 # panel 3 — reprojection
 twin_lines(axes[2], sigmas,
            ep_rp_m, ep_rp_s, gn_rp_m, gn_rp_s,
-           MUTED, GREEN, 'EPnP (raw)', 'EPnP + GN')
-style(axes[2], 'Reprojection error  [px]', 'Reprojection error')
+           'EPnP (raw)', 'EPnP + GN')
+style_ax(axes[2], 'Reprojection error  [px]', 'Reprojection error')
+axes[2].set_xlim(sigmas[0] - 0.05, sigmas[-1] + 0.1)
+axes[2].set_xticks(sigmas)
 
-fig.suptitle('Pose Estimation Error Under Pixel Measurement Noise',
-             color=TEXT, fontsize=12, y=0.97, fontweight='semibold')
+fig.suptitle('Pose Estimation Accuracy vs Pixel Noise  (N = 200 trials per σ)',
+             color=TEXT, fontsize=12, y=0.97)
 
 out_path = OUT / 'expB_fig2_pose_vs_noise.png'
-fig.savefig(out_path, dpi=180, bbox_inches='tight', facecolor=DARK)
+fig.savefig(out_path, dpi=180, bbox_inches='tight', facecolor=BG)
 plt.close(fig)
 print(f"\nSaved → {out_path}")
