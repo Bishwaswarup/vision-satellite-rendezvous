@@ -291,10 +291,8 @@ ax.set_title('MEKF vs UKF — RMSE Comparison', color=TEXT, fontsize=11, pad=8)
 ax.legend(fontsize=9, facecolor=PANEL, edgecolor=MUTED, labelcolor=TEXT)
 ax.set_ylim(0, max(ekf_vals + ukf_vals) * 1.25)
 
-fig2.suptitle(f'N = {N_STEPS} steps,  dt = {DT:.0f} s'
-              f'   |   MEKF wall-time {t_ekf_total:.2f} s'
-              f',  UKF {t_ukf_total:.2f} s',
-              color=MUTED, fontsize=9, y=0.97)
+
+#fig2.suptitle(f'N = {N_STEPS} steps,  dt = {DT:.0f} s' f'   |   MEKF wall-time {t_ekf_total:.2f} s' f',  UKF {t_ukf_total:.2f} s',color=MUTED, fontsize=9, y=0.97)
 
 out2 = OUT / 'expD_fig5_filter_rmse.png'
 fig2.savefig(out2, dpi=180, bbox_inches='tight', facecolor=BG)

@@ -1,0 +1,138 @@
+\section{Related Work}
+
+\subsection{Spacecraft Rendezvous and Proximity Operations}
+
+Automated rendezvous and docking (ARD) has a multi-decade heritage
+in human spaceflight and is now a core enabling capability for
+emerging unmanned applications including on-orbit servicing, active
+debris removal, and in-space assembly
+\cite{fehse2003rendezvous,flores2014}.
+The translational dynamics of close-proximity operations are
+commonly described using the Hill--Clohessy--Wiltshire (HCW)
+linearized equations, which provide a closed-form state-transition
+solution for relative motion in the local orbital reference frame
+under the assumption of a near-circular reference orbit
+\cite{clohessy1960}.
+
+Operational demonstration of autonomous rendezvous with a
+non-cooperative target was achieved by the AVANTI experiment on
+board the BIROS spacecraft, which validated relative navigation
+and manoeuvring in low Earth orbit using optical measurements
+alone \cite{gaias2018avanti}.
+Such demonstrations highlight both the maturity of the underlying
+guidance algorithms and the remaining challenge of obtaining
+accurate pose estimates from passive camera measurements.
+
+\subsection{Model-Based Relative Pose Estimation}
+
+Recovering the six-degree-of-freedom (6-DoF) relative pose of a
+spacecraft from monocular camera measurements is typically cast as a
+Perspective-$n$-Point (PnP) problem, in which the camera pose is
+recovered from known three-dimensional object points and their
+two-dimensional image projections.
+Kelsey~\textit{et al.}~\cite{kelsey2006} provided an early
+demonstration that such vision-based pose estimation is viable
+for autonomous rendezvous and docking applications.
+
+Among PnP solvers, the EPnP algorithm of Lepetit~\textit{et al.}
+\cite{lepetit2009epnp} is widely used in onboard applications
+owing to its $\mathcal{O}(n)$ complexity: the reference points
+are expressed as a weighted combination of four virtual control
+points and the pose is recovered from a compact eigenvalue
+problem.
+A nonlinear Gauss--Newton step can subsequently minimize the
+image reprojection error to further reduce the pose error, at
+the cost of additional computation.
+
+More recently, deep-learning methods have been applied to
+non-cooperative spacecraft pose estimation, demonstrating improved
+robustness to illumination variation and partial target visibility
+\cite{sharma2018}.
+However, these approaches require large labeled datasets and lack
+the geometric guarantees of model-based pipelines.
+The present work adopts the model-based approach, which is
+interpretable, sample-efficient, and directly applicable when the
+target geometry is known.
+
+\subsection{Robust Correspondence Estimation}
+
+Vision-based pose estimation degrades rapidly when keypoint
+correspondences are incorrect, as can occur under partial
+occlusion, background clutter, or mis-matched feature descriptors.
+Random Sample Consensus (RANSAC), introduced by Fischler and
+Bolles~\cite{fischler1981ransac}, provides a general framework
+for robust estimation under outlier contamination.
+RANSAC iteratively fits a minimal model hypothesis to a random
+subset of correspondences and selects the hypothesis supported
+by the largest consensus set of inliers.
+The locally optimized RANSAC (LO-RANSAC) variant
+\cite{chum2003loransac} additionally refits the model on the
+full inlier set within each iteration, substantially improving
+accuracy without increasing the required number of random
+hypotheses.
+The proposed framework uses RANSAC with EPnP as the hypothesis
+solver and performs a final inlier refit to obtain the delivered
+pose estimate.
+
+\subsection{Recursive State Estimation}
+
+Kalman-filter-based recursive estimators are the standard approach
+for fusing noisy pose measurements with spacecraft dynamics models.
+Because spacecraft attitude is parameterized by unit quaternions,
+standard additive Extended Kalman Filters cannot preserve the
+norm constraint through the update step.
+The Multiplicative Extended Kalman Filter (MEKF) addresses this
+by propagating a small rotation-vector error state that is
+composed multiplicatively with the reference quaternion, ensuring
+a unit-quaternion estimate at all times \cite{markley2003}.
+
+The Unscented Kalman Filter (UKF), introduced by Julier and
+Uhlmann~\cite{julier2004}, propagates a set of sigma points
+through the nonlinear dynamics and avoids explicit Jacobian
+computation.
+The UKF is known to provide improved performance over the EKF
+for strongly nonlinear systems, at the cost of a larger number
+of function evaluations per step.
+Both the MEKF and UKF are implemented and compared in the present
+framework to characterize their relative performance under
+identical controlled measurement conditions.
+
+\subsection{Guidance and Control for Proximity Operations}
+
+Linear Quadratic Regulation (LQR) provides an optimal closed-form
+feedback law by solving the discrete algebraic Riccati equation
+offline \cite{anderson1990}.
+Under the HCW linearization, LQR yields a computationally
+efficient infinite-horizon controller that is straightforward
+to implement in the onboard flight computer.
+
+Model Predictive Control (MPC) generalizes LQR by solving a
+finite-horizon constrained optimization problem at each control
+step, enabling explicit enforcement of thrust bounds and
+trajectory constraints such as approach corridors
+\cite{mayne2000}.
+Breger and How~\cite{breger2008} demonstrated MPC-based safe
+trajectory planning for spacecraft rendezvous, showing that
+the receding-horizon framework can generate constraint-satisfying
+manoeuvres in real time.
+The present work evaluates both LQR and MPC for the same HCW
+rendezvous scenario to quantify the trade-off between propellant
+efficiency, terminal accuracy, and computational cost.
+
+\subsection{Closed-Loop Simulation Frameworks}
+
+Integrated numerical and physical testbeds have been developed
+to evaluate complete navigation and control pipelines in a
+controlled setting.
+Gasbarri~\textit{et al.}~\cite{testbed2014} presented a
+ground-based testbed for vision-based formation flying that
+demonstrated camera-based relative navigation for multi-spacecraft
+proximity operations.
+The present work constructs a complementary numerical simulation
+framework that integrates relative orbital dynamics, target
+attitude propagation, synthetic camera measurements, pose
+estimation, state estimation, and guidance and control within a
+single closed-loop environment.
+This modular architecture enables systematic evaluation of each
+subsystem in isolation as well as full end-to-end performance
+assessment under representative noise and outlier conditions.

@@ -1,0 +1,73 @@
+\documentclass[conference]{IEEEtran}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{bm}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{cite}
+\usepackage{url}
+\usepackage{siunitx}
+\usepackage{xcolor}
+\usepackage{hyperref}
+
+\begin{document}
+
+\title{
+Vision-Based Closed-Loop Autonomous Spacecraft
+Rendezvous with Robust Relative Pose Estimation
+}
+
+\author{
+\IEEEauthorblockN{Bishwaswarup Nayak}
+\IEEEauthorblockA{
+Indian Institute of Science\\
+Bengaluru, India\\
+bishwaswarup@iisc.ac.in
+}
+}
+
+\maketitle
+
+% -------------------------------------------------
+% Abstract
+% -------------------------------------------------
+
+\begin{abstract}
+In this paper we present a simulation based visual navigation and guidance architecture to carry out on orbit autonomous rendezvous and proximity operations. The architecture uses HCW/J2 dynamics, analytically derived spacecraft feature landmark geometries, monocular perspective projection, RANSAC--EPnP pose estimation, a Multiplicative Extended Kalman Filter and LQR/MPC controller implementation. We implement six experiments that measure accuracy in numerical dynamics simulation, visual pose estimation under pixel noise, reliability against keypoint outliers, state estimation, controller results and full closed-loop rendezvous behavior.
+The dynamics are demonstrated to be in error from the analytical solution at most $4.656\times10^{-10}$~m for any given position value.
+EPnP helps to improve pose accuracy, and RANSAC greatly increases robust pose estimation capability under high proportions of outliers. Overall, the closed-loop visual--EKF system is proven capable of successful autonomous rendezvous and docking in 100% of Monte Carlo trials for 25 different trials for up to 4~px.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Spacecraft Rendezvous, Relative Navigation, Computer Vision,
+EPnP, RANSAC, Pose Estimation, State Estimation, Spacecraft Guidance
+\end{IEEEkeywords}
+
+% -------------------------------------------------
+% Main Sections
+% -------------------------------------------------
+
+\input{sections/introduction}
+
+\input{sections/related_work}
+
+\input{sections/architecture}
+
+\input{sections/mathematical_model}
+
+\input{sections/experimental_methodology}
+
+\input{sections/results}
+
+\input{sections/conclusion}
+
+% -------------------------------------------------
+% References
+% -------------------------------------------------
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}

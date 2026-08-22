@@ -1,0 +1,74 @@
+\section{Conclusion}
+
+This paper presented a modular closed-loop simulation framework
+for vision-based autonomous spacecraft rendezvous and evaluated
+each component of the perception, estimation, and guidance
+pipeline through six targeted experiments.
+
+The dynamics experiment confirmed that the HCW state-transition
+implementation is numerically consistent with high-accuracy DOP853
+integration to sub-nanometer position precision over three orbital
+periods, validating the dynamics model as a suitable foundation
+for the subsequent control and estimation studies.
+
+The pose-estimation experiments established two complementary
+properties of the visual pipeline.
+First, Gauss--Newton nonlinear refinement substantially reduces
+the raw EPnP translation error across all tested noise levels,
+achieving a $76\%$ reduction at $5$~px pixel noise.
+Second, RANSAC-based correspondence rejection is essential for
+robustness: bare EPnP failed in up to $100\%$ of trials at
+$30\%$ outlier contamination, while RANSAC--EPnP maintained
+zero solver failures and sub-$8$~cm translation accuracy
+throughout the tested range.
+
+The state-estimation comparison showed that MEKF and UKF achieve
+effectively identical translational performance under the
+controlled Gaussian measurement model, with position and
+velocity RMSE of $0.60$~m and $0.023$~m/s respectively.
+The MEKF produced a marginally lower attitude RMSE
+($1.33^\circ$ vs $1.34^\circ$), while the UKF required
+approximately half the wall-clock execution time.
+
+The guidance and control experiment revealed a clear performance
+trade-off between the two strategies.
+MPC achieved $58\%$ lower cumulative $\Delta v$ than LQR
+($7.02$~m/s vs $16.83$~m/s) for the same rendezvous task,
+but at a $300\times$ higher per-step computational cost
+($3.00$~ms vs $0.01$~ms).
+Both controllers converged to sub-millimetre final range,
+confirming that terminal accuracy is not a differentiating factor
+for the unconstrained scenario evaluated here.
+
+The end-to-end Monte Carlo study demonstrated $100\%$ docking
+success over 25 trials for all three configurations tested:
+perfect-state feedback, direct noisy-measurement EKF, and the
+full vision--MEKF pipeline.
+The full pipeline achieved cumulative $\Delta v$ comparable to
+the perfect-state reference ($\approx40.2$~m/s), substantially
+below the direct EKF configuration ($\approx68.2$~m/s), showing
+that RANSAC--EPnP visual measurements provide cleaner state
+estimates than direct noisy position measurements under the
+tested conditions.
+The pixel-noise ablation further confirmed that $100\%$ docking
+success is maintained from $0.3$~px to $4.0$~px, demonstrating
+substantial tolerance of the closed-loop system to image-plane
+measurement degradation.
+
+Taken together, the results validate the proposed architecture
+at both the subsystem and system level.
+The principal limitation of the present study is its reliance on
+a simplified synthetic camera model with parametric keypoints
+and additive Gaussian noise; real imagery introduces
+illumination variation, partial target visibility,
+texture-dependent matching ambiguities, and hardware-specific
+noise characteristics not captured by this model.
+
+Future work should address these limitations through integration
+of a higher-fidelity rendering pipeline, extension to
+unstructured natural-feature keypoints, and hardware-in-the-loop
+testing with a real camera and representative embedded processor.
+Incorporating $J_2$ and atmospheric drag perturbations into
+the dynamics model and evaluating the MPC approach-cone constraint
+in the closed-loop end-to-end pipeline are also important
+directions for future investigation.

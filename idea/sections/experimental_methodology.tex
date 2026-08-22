@@ -1,0 +1,472 @@
+\section{Experimental Methodology}
+
+We investigate the proposed vision-based rendezvous architecture with a set of controlled numerical experiments. Each main element is independently tested before investigating the full navigation-and-control pipeline. We move from analytically validating the dynamics through to estimating the visual poses, robust estimation, recursive state estimation, guidance-and-control, and lastly end-to-end Monte Carlo testing. 
+
+This allows us to examine any numerical and algorithmic errors separate from the effects at the system level. 
+
+Specifically, we demonstrate validity of the dynamics model against a known analytic solution and then characterising the pose-estimation pipeline’s sensitivity to image noise and outliers. We then examine the state estimators using a controlled measurement model and the fullvision--estimation--control pipeline using simulate camera measurements. All experiments use the same parameters of the target-spacecraft and the camera model introduced in sectionIII unless stated otherwise. A random seed will be chosen that will remain constant within a single Monte Carlo trial to allow for reproduceability.
+
+\subsection{Experimental Objectives}
+
+The experiment campaign is structured around six main investigations.
+
+\begin{enumerate}
+
+\item \textbf{Dynamics validation:} The numerical implementation of relative dynamics is verified against the analytical HCW state transition solution, and numerical solver convergence is analyzed.
+
+\item \textbf{Pixel-noise sensitivity:} The image plane measurement noise level is varied and its impact on EPnP pose is analyzed along with the effectiveness of the nonlinear pose refinement stage.
+
+\item \textbf{Outlier robustness:} RANSAC relative pose is analyzed under an increasing amount of outliers.
+
+\item \textbf{State-estimation comparison:} Under an assumed Gaussian measurement model, the MEKF and UKF stat estimation algorithms are compared.
+
+\item \textbf{Guidance and control comparison:} Relative rendezvous under HCW dynamics is assessed for guidance and control, using a receding-horizon MPC as well as a LQR controller.
+
+\item \textbf{End-to-end robustness:} The overall vision to control architecture performance is assessed for various values of pixel noise based on Monte Carlo simulations.
+
+\end{enumerate}
+
+Consequently the experiments can be structured to address three escalating and broader issues : that the constituent mathematical models hold , that individual navigation and control algorithms perform in presence of unwanted perturbations , and finally that the overall architecture continues to function correctly when individual components interact with each other.
+
+\subsection{Simulation Environment and Common Parameters}
+
+All simulation work is conducted on a numerical simulation infrastructure developed in Python. Relative translational dynamics are modeled in the LVLH reference frame with the HCW equations while target motion in attitude is propagated by a built-in rigid body attitude dynamics model. Numerical propagation is performed with standard fourth-order Runge-Kutta integration in modules that require it.
+
+A parametric Ariane 44L upper stage geometry serves as the target spacecraft, containing 15 analytical keypoints in its body frame coordinates; which are then projected to the imaging sensors with the use of a calibrated camera model given in Section III-D.
+
+Experiments with full images use $1024 \times 1024$ pixel frames with noise added to the ideal projected keypoints through a zero-mean Gaussian. Unless otherwise stated standard pixel noise level of $\sigma_{\mathrm{px}}=1.5$ px is utilized for all standard vision experiments.
+
+Table~\ref{tab:experimental_parameters} summarises the standard simulation parameters used throughout the experimental campaign.
+\begin{table}[t]
+\centering
+\caption{Common simulation and experimental parameters.}
+\label{tab:experimental_parameters}
+\begin{tabular}{lc}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+Camera image size & $1024\times1024$ px \\
+Target keypoints & 15 \\
+Nominal pixel noise & $1.5$ px \\
+HCW initial range (Exp. D) & 50 m \\
+Filter sampling interval & 10 s \\
+Filter horizon (Exp. D) & 3000 s \\
+MEKF/UKF position noise & 0.5 m \\
+MEKF/UKF attitude noise & 0.05 rad \\
+LQR/MPC control interval & 10 s \\
+MPC prediction horizon & 20 steps \\
+Maximum control input (Exp. E) & 0.1 m/s$^2$ \\
+Maximum control input (Exp. F) & 0.3 m/s$^2$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Dynamics Validation}
+
+The relative translational dynamics are first validated independently of
+the vision and estimation subsystems. Experiment A compares the
+closed-form HCW state-transition formulation against numerical
+integration using the DOP853 solver.
+
+A periodic HCW trajectory with an initial radial amplitude of 100 m is
+propagated for three orbital periods. The analytical state is evaluated
+at the same time points as the numerical solution, and the position and
+velocity discrepancies are computed as
+
+\begin{equation}
+    e_r(t)
+    =
+    \left\|
+        \mathbf{r}_{\mathrm{analytical}}(t)
+        -
+        \mathbf{r}_{\mathrm{numerical}}(t)
+    \right\|_2,
+\end{equation}
+
+and
+
+\begin{equation}
+    e_v(t)
+    =
+    \left\|
+        \mathbf{v}_{\mathrm{analytical}}(t)
+        -
+        \mathbf{v}_{\mathrm{numerical}}(t)
+    \right\|_2.
+\end{equation}
+
+The maximum errors over the complete propagation interval are used as
+the primary validation metrics.
+
+The numerical integration is initially performed using
+$\mathrm{rtol}=10^{-12}$ and $\mathrm{atol}=10^{-14}$. A second
+convergence experiment varies the relative tolerance over
+
+\begin{equation}
+    \mathrm{rtol}
+    \in
+    \left\{
+    10^{-6},10^{-8},10^{-10},10^{-12},10^{-13}
+    \right\},
+\end{equation}
+
+with $\mathrm{atol}=10^{-2}\mathrm{rtol}$. The resulting maximum
+position and velocity discrepancies are used to verify convergence of
+the numerical propagation.
+
+\subsection{Pixel-Noise Sensitivity of Pose Estimation}
+
+Experiment B evaluates the sensitivity of the visual pose-estimation
+pipeline to image-plane measurement noise. The ideal two-dimensional
+keypoint observations are corrupted using independent zero-mean
+Gaussian noise,
+
+\begin{equation}
+    \tilde{\mathbf{u}}_i
+    =
+    \mathbf{u}_i
+    +
+    \boldsymbol{\eta}_i,
+    \qquad
+    \boldsymbol{\eta}_i
+    \sim
+    \mathcal{N}
+    \left(
+        \mathbf{0},
+        \sigma_{\mathrm{px}}^2\mathbf{I}_2
+    \right).
+\end{equation}
+
+The experiment considers
+
+\begin{equation}
+\sigma_{\mathrm{px}}
+\in
+\{0.1,\;0.25,\;0.5,\;1,\;1.5,\;2,\;3,\;5\}\ {\rm px}.
+\end{equation}
+
+For each noise level, 200 independent Monte Carlo trials are performed.
+The raw EPnP solution is compared with the solution obtained after
+nonlinear Gauss--Newton pose refinement.
+
+The translation error is evaluated using the Euclidean norm,
+
+\begin{equation}
+    e_t =
+    \left\|
+        \hat{\mathbf{t}}-\mathbf{t}_{\mathrm{gt}}
+    \right\|_2,
+\end{equation}
+
+while the rotational error is evaluated using the geodesic angle
+
+\begin{equation}
+    e_R
+    =
+    \cos^{-1}
+    \left[
+    \frac{
+    \operatorname{tr}
+    \left(
+    \hat{\mathbf{R}}
+    \mathbf{R}_{\mathrm{gt}}^{T}
+    \right)-1
+    }{2}
+    \right].
+\end{equation}
+
+The mean reprojection error is additionally recorded to quantify the
+image-space consistency of each recovered pose. Translation RMSE,
+rotation error, and reprojection error are reported as functions of
+pixel noise.
+
+\subsection{Robustness to Image Outliers}
+
+Experiment C evaluates the robustness of pose estimation to incorrect
+keypoint correspondences. Inlier observations are corrupted with
+Gaussian pixel noise of $\sigma_{\mathrm{px}}=1$ px. A controlled
+fraction of the keypoints is then replaced with randomly generated
+image coordinates distributed over the complete camera image.
+
+The tested outlier fractions are
+
+\begin{equation}
+    f_{\mathrm{out}}
+    \in
+    \{0,\;5,\;10,\;20,\;30\}\%.
+\end{equation}
+
+For each condition, 200 independent trials are performed. Bare EPnP is
+compared with the proposed RANSAC--EPnP configuration using a
+2-pixel inlier threshold and a maximum of 500 RANSAC iterations.
+
+A trial is classified as a failure if either the pose solver reports an
+invalid solution or the recovered rotation error exceeds $15^\circ$.
+The resulting failure rate is
+
+\begin{equation}
+    P_{\mathrm{fail}}
+    =
+    \frac{N_{\mathrm{invalid}}
+    +
+    N_{e_R>15^\circ}}
+    {N_{\mathrm{trials}}}
+    \times 100\%.
+\end{equation}
+
+Translation and rotation RMSE are computed over successful trials,
+while the failure rate is computed over all trials. This distinction
+prevents unsuccessful trials from being silently removed from the
+robustness analysis.
+
+\subsection{State-Estimation Evaluation}
+
+Experiment D evaluates the recursive state-estimation stage by
+comparing the MEKF and UKF under an identical controlled measurement
+model. The purpose of this experiment is to isolate filter behavior
+from the stochastic characteristics of the camera and PnP pipeline.
+
+The simulated rendezvous begins at a 50-m along-track separation with
+zero initial relative velocity. The target is assigned a slow
+uncontrolled angular velocity of
+
+\begin{equation}
+    \boldsymbol{\omega}
+    =
+    [0.01,\;0.02,\;-0.015]^{T}\ {\rm rad/s}.
+\end{equation}
+
+The filter sampling interval is 10 s and the simulation contains 300
+steps, corresponding to 3000 s.
+
+The initial filter state contains deliberate errors of approximately
+4 m in position and $17^\circ$ in attitude to represent a cold-start
+condition. Both filters receive the same noisy pose measurement with
+
+\begin{equation}
+    \sigma_{\mathrm{pos}}=0.5~{\rm m},
+    \qquad
+    \sigma_{\mathrm{att}}=0.05~{\rm rad}.
+\end{equation}
+
+Position, attitude, and velocity errors are recorded throughout the
+simulation. The root-mean-square error is computed as
+
+\begin{equation}
+    \mathrm{RMSE}
+    =
+    \sqrt{
+    \frac{1}{N}
+    \sum_{k=1}^{N}
+    e_k^2
+    }.
+\end{equation}
+
+Maximum position and attitude errors, the number of accepted
+measurements, and wall-clock execution time are also recorded.
+
+Importantly, this experiment uses direct synthetic Gaussian pose
+measurements rather than pixel measurements generated by the camera
+and PnP stages. Thus, the results characterize the filter comparison
+under a controlled measurement distribution and should not be
+interpreted as an end-to-end camera-navigation comparison.
+
+\subsection{Guidance and Control Evaluation}
+
+Experiment E compares an infinite-horizon discrete LQR controller with
+a receding-horizon MPC controller for translational rendezvous under
+HCW dynamics.
+
+Both controllers start from the same relative state,
+
+\begin{equation}
+    \mathbf{x}_0
+    =
+    [0,\;50,\;0,\;0,\;0,\;0]^T,
+\end{equation}
+
+corresponding to a 50-m along-track separation and zero initial
+relative velocity. The control interval is 10 s and the simulation
+contains 200 control steps.
+
+The LQR controller is obtained from the discrete algebraic Riccati
+equation \cite{anderson1990}, while MPC \cite{mayne2000} uses a
+20-step prediction horizon and the LQR solution as its terminal cost,
+following the approach of Breger and How~\cite{breger2008} for
+spacecraft proximity operations. Both controllers use identical state
+and control weighting and a maximum control input magnitude of
+$0.1~\mathrm{m/s^2}$.
+
+The controllers are compared using final range,
+
+\begin{equation}
+    r_f = \|\mathbf{r}_f\|_2,
+\end{equation}
+
+total velocity increment,
+
+\begin{equation}
+    \Delta v
+    =
+    \sum_{k=0}^{N-1}
+    \|\mathbf{u}_k\|_2\Delta t,
+\end{equation}
+
+maximum control magnitude, and computational cost per control step.
+
+For this controlled comparison, both controllers are evaluated without
+the optional approach-cone constraint so that differences are not
+caused by constraint feasibility.
+
+\subsection{End-to-End Monte Carlo Evaluation}
+
+Experiment F evaluates the complete rendezvous architecture by
+combining relative dynamics, visual measurements, state estimation,
+and guidance and control. Two complementary studies are performed.
+
+\subsubsection{Monte Carlo Configuration Study}
+
+The first study performs 25 Monte Carlo trials for each of three
+configurations:
+
+\begin{enumerate}
+    \item \textbf{Perfect-state configuration:} ideal state knowledge
+    with no measurement noise and no initial-state error.
+
+    \item \textbf{EKF-only configuration:} direct noisy state
+    measurements are supplied to the EKF, without the camera and
+    visual pose-estimation stages.
+
+    \item \textbf{Full-pipeline configuration:} simulated camera
+    measurements are processed through the visual pose-estimation
+    pipeline and subsequently supplied to the EKF and LQR controller.
+\end{enumerate}
+
+Each trial contains 250 simulation steps. The initial relative position
+is
+
+\begin{equation}
+    \mathbf{r}_0
+    =
+    [30,\;3,\;-1.5]^T~{\rm m},
+\end{equation}
+
+and the initial relative velocity is
+
+\begin{equation}
+    \mathbf{v}_0
+    =
+    [-0.08,\;0,\;0]^T~{\rm m/s}.
+\end{equation}
+
+For the noisy configurations, the initial position error is
+
+\begin{equation}
+    \delta\mathbf{r}_0
+    =
+    [2.5,\;-0.8,\;0.5]^T~{\rm m}.
+\end{equation}
+
+The nominal full-vision configuration uses
+$\sigma_{\mathrm{px}}=1.5$ px.
+
+The primary metrics are final range, total $\Delta v$, and docking
+success rate. These metrics quantify both navigation/control
+performance and mission-level outcome.
+
+\subsubsection{Pixel-Noise Ablation}
+
+A second Monte Carlo study evaluates the sensitivity of the complete
+vision-based pipeline to image measurement noise. The full
+vision--EKF--LQR configuration is evaluated at
+
+\begin{equation}
+    \sigma_{\mathrm{px}}
+    \in
+    \{0.3,\;0.7,\;1.0,\;1.5,\;2.0,\;3.0,\;4.0\}\ {\rm px}.
+\end{equation}
+
+Twenty independent trials are performed at each noise level. The mean
+and standard deviation of the final range are recorded as
+
+\begin{equation}
+    \bar{r}_f
+    =
+    \frac{1}{N}
+    \sum_{i=1}^{N}r_{f,i},
+\end{equation}
+
+\begin{equation}
+    \sigma_{r_f}
+    =
+    \sqrt{
+    \frac{1}{N}
+    \sum_{i=1}^{N}
+    (r_{f,i}-\bar{r}_f)^2
+    }.
+\end{equation}
+
+Docking success is additionally reported as a function of pixel noise.
+This experiment provides a system-level sensitivity analysis linking
+the quality of the visual measurements to the final rendezvous
+performance.
+
+\subsection{Evaluation Metrics}
+
+The experimental campaign uses metrics appropriate to each stage of the
+rendezvous architecture. Dynamics validation is evaluated using maximum
+position and velocity propagation errors. Visual pose estimation is
+evaluated using translation error, rotation error, and image-plane
+reprojection error. Robustness is quantified using solver failure rate
+and estimation RMSE.
+
+For state estimation, position and velocity errors are computed using
+the Euclidean norm,
+
+\begin{equation}
+    e_{\mathbf{r},k}
+    =
+    \|\hat{\mathbf{r}}_k-\mathbf{r}_k\|_2,
+\end{equation}
+
+\begin{equation}
+    e_{\mathbf{v},k}
+    =
+    \|\hat{\mathbf{v}}_k-\mathbf{v}_k\|_2.
+\end{equation}
+
+The attitude error is represented by the geodesic angle between the
+estimated and true orientations,
+
+\begin{equation}
+    e_{\mathbf{R},k}
+    =
+    \cos^{-1}
+    \left(
+    \frac{
+    \operatorname{tr}
+    (\hat{\mathbf{R}}_k\mathbf{R}_k^T)-1
+    }{2}
+    \right).
+\end{equation}
+
+For a sequence of $N$ samples, the corresponding RMSE is
+
+\begin{equation}
+    \mathrm{RMSE}(e)
+    =
+    \sqrt{
+    \frac{1}{N}
+    \sum_{k=1}^{N}e_k^2
+    }.
+\end{equation}
+
+For the control experiments, total $\Delta v$ is used as a measure of
+control effort, while final range measures rendezvous accuracy.
+Computational cost is reported using wall-clock execution time or
+average computation time per control step, depending on the experiment.
+
+For the end-to-end Monte Carlo experiments, docking success is reported
+as the fraction of trials satisfying the implemented docking condition
+within the simulation horizon.
+

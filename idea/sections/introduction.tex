@@ -1,0 +1,36 @@
+\section{Introduction}
+Autonomous rendezvous and docking (ARD) is a key enabling technology for a wide range of missions including on-orbit servicing, inspection, refueling, assembly, and active debris removal \cite{fehse2003rendezvous,flores2014}. During a close-proximity operation, the chaser must determine the relative state of the target and use that information to safely guide its own translational and rotational motion towards the docking configuration. Thus, reliable relative navigation is a fundamental prerequisite for autonomous rendezvous and proximity operations (RPO). Vision-based navigation is attractive for such operations because cameras provide rich geometric information at low mass, volume, and power compared with active ranging sensors. Previous studies have demonstrated vision-based relative pose estimation, visual navigation testbeds, and autonomous rendezvous with non-cooperative targets using onboard vision systems \cite{kelsey2006,testbed2014,gaias2018avanti}.
+
+A challenging aspect for vision-based rendezvous is that errors in the perception subsystem can lead to exponentially large errors in the guidance-and-control (GNC) stages. The image plane measurement noises, target motion, incorrect feature correspondences, and imperfect geometric meshes can introduce significant errors to the system. These errors then affect the controller and degrade the safety and success of the rendezvous maneuver. 
+
+For close range pose estimation, the Perspective-$n$-point (PnP) problem provides a direct means of recovering 6 degrees of freedom relative pose from the known three dimensional target points and their two dimensional image projections. The Efficient PnP method provides an efficient $0(n)$ solution by representing the target points using four virtual control points \cite{lepetit2009epnp}. However PnP can be sensitive to noises and thus to develop that we are using Random Sample Consensus (RANSAC) which provides a general robust estimation \cite{fischler1981ransac}. Nonlinear refinement can then be used to minimise reprojection error and improve initial pose estimation.
+
+The relative translational dynamics of a chaser spacecraft near a target in a near-circular LEO are well described by the Hill--Clohessy--Wiltshire (HCW) linearized equations \cite{clohessy1960}. 
+
+This paper presents a modular simulation framework for vision-based autonomous spacecraft rendezvous with a moving and potentially tumbling target. This framework integrates relative orbital dynamics, target attitude dynamics, synthetic camera control, pose estimation, nonlinear state estimation, and constrained guidance and control within a closed-loop simulation environment. The framework provides a common environment in which errors and measurement uncertainties can be propagated through navigation and control pipeline.
+
+The primary contributions of this work are as follows:
+
+\begin{itemize}
+    \item A modular closed-loop simulation architecture integrating
+    spacecraft relative dynamics, target attitude motion, synthetic
+    vision, pose estimation, state estimation, and guidance and control
+    for autonomous rendezvous evaluation.
+
+    \item A systematic evaluation of EPnP-based relative pose estimation
+    under increasing image-plane measurement noise, including comparison
+    of the closed-form EPnP solution with nonlinear Gauss--Newton
+    refinement.
+
+    \item An evaluation of RANSAC-based correspondence rejection under
+    controlled outlier contamination, including both pose accuracy and
+    pose-estimation failure rate.
+
+    \item A numerical validation of the analytical HCW state-transition
+    implementation against high-accuracy DOP853 numerical integration
+    and a convergence study with respect to numerical solver tolerance.
+
+    \item An end-to-end evaluation of the resulting perception,
+    estimation, and control pipeline under representative simulation
+    uncertainties.
+\end{itemize}
