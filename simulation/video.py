@@ -92,11 +92,8 @@ def render_frame(result, k: int, axes=None, figsize=(14, 5)):
     # The renderer returns an RGB canvas, and imshow ignores `cmap` for 3-D
     # input, so fold it to luminance first (Rec. 709) to keep the figure
     # genuinely monochrome rather than merely looking that way.
-    img = np.asarray(img, dtype=float)
-    if img.ndim == 3:
-        img = (0.2126 * img[..., 0] + 0.7152 * img[..., 1]
-               + 0.0722 * img[..., 2])
-    ax_img.imshow(img, cmap=IMAGE_CMAP, vmin=0.0, vmax=1.0)
+    from simulation.dualview import _luminance
+    ax_img.imshow(_luminance(img), cmap=IMAGE_CMAP, vmin=0.0, vmax=1.0)
     ax_img.set_title(f'Camera view   step {k}')
     ax_img.axis('off')
 

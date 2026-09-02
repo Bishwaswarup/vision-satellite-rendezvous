@@ -1,333 +1,335 @@
 """
-Experiment F — Monte Carlo Robustness & Noise Ablation
-=======================================================
-Evaluates the complete vision-satellite-rendezvous pipeline under statistical
-variation and ablation of key system components / noise parameters.
+Experiment F — Dispersed Monte Carlo & Noise Ablation
+=====================================================
+Thin driver over :mod:`simulation.montecarlo`.  All sampling, seeding and
+statistics live in that module so they can be unit-tested; this file only
+chooses the campaign sizes, runs them, prints the tables and draws the
+figures.
 
-Study 1 — Monte Carlo (N_MC trials × 3 configurations)
-  Configurations compared:
-    A. Perfect state  : ideal state knowledge, zero noise, zero init error
-    B. EKF only       : noisy direct measurements → EKF → LQR  (no vision)
-    C. Full pipeline  : EPnP vision → EKF → LQR  (nominal σ_px = 1.5 px)
-  Metrics per trial  : final range [m], total Δv [m/s], docking success.
+What changed from the earlier version of this experiment
+--------------------------------------------------------
+The previous script looped over ``range(N)`` and passed the *same* r0, v0, w0
+and q0 to every trial, varying only the simulator's RNG seed.  The reported
+"distribution" was therefore the spread of one measurement-noise realisation
+about one trajectory, and the perfect-state configuration — which has no noise
+at all — produced N bit-identical runs that had to be jittered by 1e-6 to keep
+``violinplot`` from crashing.  The campaign now disperses initial range,
+bearing, closing rate, tumble magnitude and axis, initial attitude (uniform on
+SO(3)) and navigation initialisation error, with per-trial seed sequences so
+any trial can be replayed on its own.
 
-Study 2 — Pixel-noise ablation (N_MC_NOISE trials × 7 noise levels)
-  Full pipeline run at σ_px ∈ {0.3, 0.7, 1.0, 1.5, 2.0, 3.0, 4.0} px.
-  Reports mean ± 1σ final range and docking success rate vs noise level.
+Study 1 — three configurations, paired trial-by-trial
+    A. perfect state  : truth fed to the controller, no noise, no nav error
+    B. EKF, direct    : noisy direct pose measurement -> MEKF -> LQR
+    C. vision + EKF   : EPnP/RANSAC front end -> MEKF -> LQR
 
-Setup
------
-  Initial position : [30, 3, -1.5] m  (radial approach)
-  Initial velocity : [-0.08, 0, 0] m/s
-  Init pos error   : [2.5, -0.8, 0.5] m  (configs B & C)
-  u_max            : 0.3 m/s²
-  Steps per trial  : 250  (default dt)
+Study 2 — pixel-noise ablation, paired across levels
+    sigma_px in {0.3, 0.7, 1.0, 1.5, 2.0, 3.0, 4.0} px, identical initial
+    conditions at every level, so the level-to-level change is the parameter
+    effect and not a fresh IC draw.
+
+Study 3 — availability vs instantaneous range
+    Measurement availability pooled per simulation step and binned by the
+    range the camera is actually at, which is the campaign-level counterpart
+    of the closed-form fill criterion z_fill = f L / W.  Binning by *initial*
+    range would say nothing: every trial that closes passes through the whole
+    interval, so a per-trial dropout rate averages the easy far field with the
+    hard terminal phase.
 
 Outputs
 -------
-  outputs/expF_fig8_montecarlo_boxplot.png  — violin + bar plots (Study 1)
-  outputs/expF_fig9_ablation_noise.png      — range & success vs noise (Study 2)
+  outputs/expF_fig8_montecarlo.png       Study 1 (violins + success bars)
+  outputs/expF_fig9_ablation_noise.png   Study 2 (range, success, dropout)
+  outputs/expF_fig10_availability.png    Study 3 (dropout & success vs range)
+  outputs/mc_<config>.csv                per-trial records, all studies
+  outputs/mc_tables.tex                  booktabs tables for the paper
 
 Run from the project root:
-    python experiments/experiment_F.py
+    python experiments/experiment_F.py [--trials N] [--noise-trials N] [--jobs J]
 """
 
-import sys, pathlib
+import argparse
+import sys
+import pathlib
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 import numpy as np
-import time
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
+
 from pathlib import Path
 
-from simulation import default_config, run_simulation
+from simulation.montecarlo import (
+    MonteCarloConfig, Dispersion, latex_table, run_campaign, standard_configs,
+    sweep,
+)
+from viz.style import (
+    GREY, HATCHES, add_panel_label, apply_style, hatch, save_fig, series_kw,
+    style_ax,
+)
 
 OUT = Path('outputs')
 OUT.mkdir(exist_ok=True)
 
-# ── style tokens ──────────────────────────────────────────────────────────────
-BG         = '#FFFFFF'
-PANEL      = '#FAFAFA'
-TEXT       = '#111111'
-MUTED      = '#555555'
-GRID       = '#DDDDDD'
-C1         = '#111111'   # config A / curve
-C2         = '#555555'   # config B
-C3         = '#999999'   # config C
-ALPHA_BAND = 0.13
+NOISE_LEVELS = [0.3, 0.7, 1.0, 1.5, 2.0, 3.0, 4.0]   # [px]
+Z_FILL_M = 6.25          # f L / W = 800 x 8 / 1024  [m]
 
 
-def style_ax(ax, ylabel, title, xlabel=None):
-    ax.set_facecolor(PANEL)
-    for spine in ax.spines.values():
-        spine.set_edgecolor(MUTED)
-        spine.set_linewidth(0.8)
-    ax.tick_params(colors=TEXT, labelsize=9.5, direction='in')
-    ax.set_ylabel(ylabel, fontsize=10.5, color=TEXT)
-    ax.yaxis.label.set_color(TEXT)
-    ax.xaxis.label.set_color(TEXT)
-    ax.set_title(title, color=TEXT, fontsize=11, pad=6)
-    ax.grid(True, color=GRID, linewidth=0.7, alpha=1.0)
-    ax.set_axisbelow(True)
-    if xlabel:
-        ax.set_xlabel(xlabel, fontsize=10.5, color=TEXT)
+# ── figure helpers ───────────────────────────────────────────────────────────
+
+def _violin(ax, data, labels):
+    """Monochrome violin: grey bodies, hatched, with a median bar."""
+    safe = [np.asarray([v for v in d if np.isfinite(v)], dtype=float)
+            for d in data]
+    pos = np.arange(1, len(safe) + 1)
+    vp = ax.violinplot(safe, positions=pos, widths=0.6,
+                       showmedians=True, showextrema=True)
+    for i, body in enumerate(vp['bodies']):
+        body.set_facecolor(GREY['light'])
+        body.set_edgecolor(GREY['ink'])
+        body.set_linewidth(0.8)
+        body.set_alpha(1.0)
+        body.set_hatch(hatch(i))
+    for part in ('cmedians', 'cmins', 'cmaxes', 'cbars'):
+        if part in vp:
+            vp[part].set_edgecolor(GREY['ink'])
+            vp[part].set_linewidth(1.1)
+    ax.set_xticks(pos)
+    ax.set_xticklabels(labels, fontsize=8.5)
 
 
-# ── simulation parameters ─────────────────────────────────────────────────────
-N_MC       = 25           # Monte Carlo trials per configuration
-N_MC_NOISE = 20           # trials per noise ablation level
-N_STEPS    = 250          # steps per trial (matches phase7 demo)
-U_MAX      = 0.3          # [m/s²]
-POS_W      = 15.0
-VEL_W      = 1.5
-POS_STD    = 0.5          # direct position measurement std [m]
-PIX_STD    = 1.5          # nominal pixel noise std [px]
+def fig_study1(results, path):
+    labels = [r.cfg.label.replace(', ', ',\n').replace(' + ', ' +\n')
+              for r in results]
+    fig, axes = plt.subplots(1, 3, figsize=(10.5, 3.8))
 
-R0     = np.array([30.,  3., -1.5])    # initial position [m]
-V0     = np.array([-0.08, 0., 0.])     # initial velocity [m/s]
-W0     = np.array([0.02, 0.05, 0.01])  # initial angular rate [rad/s]
-R0_ERR = np.array([2.5, -0.8, 0.5])   # initial position error [m]
+    _violin(axes[0], [r.column('final_range_m') for r in results], labels)
+    style_ax(axes[0], ylabel='Final range  [m]')
+    add_panel_label(axes[0], '(a)')
 
-NOISE_LEVELS = [0.3, 0.7, 1.0, 1.5, 2.0, 3.0, 4.0]  # [px]
+    _violin(axes[1], [r.column('delta_v_mps') for r in results], labels)
+    style_ax(axes[1], ylabel=r'Total $\Delta v$  [m/s]')
+    add_panel_label(axes[1], '(b)')
 
-# ── three configurations ──────────────────────────────────────────────────────
-#   key  : display label for plot x-axis
-#   value: keyword overrides for default_config()
-CONFIGS = {
-    'Perfect\nstate': dict(
-        use_vision=False, use_ekf=False,
-        pos_meas_std=0.0, pixel_noise_std=0.0,
-        r0_err=np.zeros(3),
-    ),
-    'EKF only\n(direct)': dict(
-        use_vision=False, use_ekf=True,
-        pos_meas_std=POS_STD, pixel_noise_std=0.0,
-        r0_err=R0_ERR,
-    ),
-    'Full pipeline\n(vision+EKF)': dict(
-        use_vision=True, use_ekf=True,
-        pos_meas_std=POS_STD, pixel_noise_std=PIX_STD,
-        r0_err=R0_ERR,
-    ),
-}
+    ax = axes[2]
+    rates = [r.stats()['dock_rate'] for r in results]
+    pos = np.arange(1, len(results) + 1)
+    err = np.array([[d['rate'] - d['ci_low'] for d in rates],
+                    [d['ci_high'] - d['rate'] for d in rates]]) * 100
+    for i, d in enumerate(rates):
+        ax.bar(pos[i], d['rate'] * 100, width=0.55, zorder=3,
+               facecolor=GREY['light'], edgecolor=GREY['ink'],
+               linewidth=0.8, hatch=hatch(i))
+    ax.errorbar(pos, [d['rate'] * 100 for d in rates], yerr=err, fmt='none',
+                ecolor=GREY['ink'], elinewidth=1.0, capsize=3.5, zorder=4)
+    for i, d in enumerate(rates):
+        ax.text(pos[i], d['ci_high'] * 100 + 2.5, f"{d['rate']*100:.0f}%",
+                ha='center', va='bottom', fontsize=8.5, color=GREY['ink'])
+    ax.set_xticks(pos)
+    ax.set_xticklabels(labels, fontsize=8.5)
+    ax.set_ylim(0, 118)
+    style_ax(ax, ylabel='Docking success  [%]')
+    add_panel_label(ax, '(c)')
 
-# ── Study 1: Monte Carlo ──────────────────────────────────────────────────────
-print("=" * 65)
-print(f"Study 1 — Monte Carlo  (N={N_MC} trials × {len(CONFIGS)} configs)")
-print("=" * 65)
+    fig.tight_layout()
+    return save_fig(fig, path)
 
-mc_results = {}   # label → {range, dv, success}
 
-for label, cfg_kw in CONFIGS.items():
-    short = label.replace('\n', ' ')
-    print(f"\n  [{short}]")
-    ranges, dvs, successes = [], [], []
-    t0 = time.perf_counter()
+def fig_study2(levels, curves, path):
+    x = np.asarray(levels, dtype=float)
+    stats = [c.stats() for c in curves]
+    # Median with a 5th-95th percentile band: the distribution is tight with
+    # a rare diverging tail, so a mean +- 1 sigma band extends below zero and
+    # hides the fact that the median is flat.
+    med = np.array([s['final_range_m']['median'] for s in stats])
+    p05 = np.array([s['final_range_m']['p05'] for s in stats])
+    p95 = np.array([s['final_range_m']['p95'] for s in stats])
+    rate = np.array([s['dock_rate']['rate'] for s in stats]) * 100
+    lo = np.array([s['dock_rate']['ci_low'] for s in stats]) * 100
+    hi = np.array([s['dock_rate']['ci_high'] for s in stats]) * 100
+    drop = np.array([s['dropout_rate']['mean'] for s in stats]) * 100
+    perr = np.array([s['mean_pos_err_m']['mean'] for s in stats])
 
-    for seed in range(N_MC):
-        cfg = default_config(
-            n_steps=N_STEPS,
-            u_max=U_MAX,
-            pos_weight=POS_W,
-            vel_weight=VEL_W,
-            r0=R0, v0=V0, w0=W0,
-            **cfg_kw,
-        )
-        res = run_simulation(cfg, rng_seed=seed)
-        ranges.append(float(res.range_m[-1]))
-        dvs.append(float(res.delta_v))
-        successes.append(res.dock_step is not None)
-        if (seed + 1) % 5 == 0:
-            print(f"    seed {seed+1:3d}/{N_MC}  "
-                  f"range = {res.range_m[-1]:.3f} m  "
-                  f"dv = {res.delta_v:.2f} m/s")
+    fig, axes = plt.subplots(1, 3, figsize=(10.5, 3.6))
 
-    elapsed = time.perf_counter() - t0
-    sr = np.mean(successes) * 100
-    print(f"    ✓ {elapsed:.1f}s  |  "
-          f"mean range = {np.mean(ranges):.2f} m  |  "
-          f"success = {sr:.0f}%")
+    ax = axes[0]
+    ax.fill_between(x, p05, p95, facecolor=GREY['light'], edgecolor='none',
+                    zorder=1, label='5th--95th percentile')
+    ax.plot(x, med, **series_kw(0, marker=True), label='median final range',
+            zorder=3)
+    ax.set_yscale('log')
+    style_ax(ax, xlabel=r'Pixel noise  $\sigma_{px}$  [px]',
+             ylabel='Final range  [m]', legend=True, legend_loc='upper left')
+    add_panel_label(ax, '(a)')
 
-    mc_results[label] = {
-        'range'  : np.array(ranges),
-        'dv'     : np.array(dvs),
-        'success': np.array(successes, dtype=float),
-    }
+    ax = axes[1]
+    ax.fill_between(x, lo, hi, facecolor=GREY['light'], edgecolor='none',
+                    zorder=1)
+    ax.plot(x, rate, **series_kw(1, marker=True), label='docking success',
+            zorder=3)
+    ax.set_ylim(-5, 108)
+    style_ax(ax, xlabel=r'Pixel noise  $\sigma_{px}$  [px]',
+             ylabel='Docking success  [%]', legend=True)
+    add_panel_label(ax, '(b)')
 
-# ── Study 2: Pixel-noise ablation ────────────────────────────────────────────
-print(f"\n{'='*65}")
-print(f"Study 2 — Pixel-noise ablation  "
-      f"(N={N_MC_NOISE} trials × {len(NOISE_LEVELS)} levels, full pipeline)")
-print("=" * 65)
+    ax = axes[2]
+    ax.plot(x, drop, **series_kw(2, marker=True), label='vision dropout')
+    ax.set_ylabel('Dropout  [%]')
+    ax2 = ax.twinx()
+    ax2.plot(x, perr, **series_kw(3, marker=True), label='mean pos. error')
+    ax2.set_ylabel('Mean position error  [m]')
+    ax2.spines['top'].set_visible(False)
+    lines = ax.get_lines() + ax2.get_lines()
+    ax.legend(lines, [l.get_label() for l in lines], loc='upper left',
+              fontsize=8)
+    style_ax(ax, xlabel=r'Pixel noise  $\sigma_{px}$  [px]')
+    add_panel_label(ax, '(c)')
 
-abl_means   = []
-abl_stds    = []
-abl_success = []
+    fig.tight_layout()
+    return save_fig(fig, path)
 
-for px_std in NOISE_LEVELS:
-    ranges = []
-    for seed in range(N_MC_NOISE):
-        cfg = default_config(
-            n_steps=N_STEPS,
-            u_max=U_MAX,
-            pos_weight=POS_W,
-            vel_weight=VEL_W,
-            r0=R0, v0=V0, w0=W0,
-            use_vision=True, use_ekf=True,
-            pos_meas_std=POS_STD,
-            pixel_noise_std=px_std,
-            r0_err=R0_ERR,
-        )
-        res = run_simulation(cfg, rng_seed=seed)
-        ranges.append(float(res.range_m[-1]))
 
-    m, s = np.mean(ranges), np.std(ranges)
-    sr   = np.mean([r < 2.0 for r in ranges]) * 100   # fallback docking check
-    abl_means.append(m)
-    abl_stds.append(s)
-    abl_success.append(sr)
-    print(f"  σ_px = {px_std:.1f} px  →  "
-          f"range = {m:.2f} ± {s:.2f} m  |  success ≈ {sr:.0f}%")
+def fig_study3(rows, path, z_fill=Z_FILL_M):
+    """Availability vs instantaneous range, with the fill criterion marked."""
+    mid = np.array([0.5 * (r['range_lo'] + r['range_hi']) for r in rows])
+    avail = np.array([r['avail'] for r in rows]) * 100
+    lo = np.array([r['avail_ci_low'] for r in rows]) * 100
+    hi = np.array([r['avail_ci_high'] for r in rows]) * 100
+    vis = np.array([r['mean_visible'] for r in rows])
 
-abl_means   = np.array(abl_means)
-abl_stds    = np.array(abl_stds)
-abl_success = np.array(abl_success)
-noise_x     = np.array(NOISE_LEVELS)
+    fig, axes = plt.subplots(1, 2, figsize=(8.6, 3.5))
 
-# ── summary table ─────────────────────────────────────────────────────────────
-print()
-print("=" * 65)
-print(f"{'Configuration':<28} {'Range [m]':>12} {'Δv [m/s]':>10} {'Success %':>10}")
-print("-" * 65)
-for label, r in mc_results.items():
-    short = label.replace('\n', ' ')
-    print(f"{short:<28} {np.mean(r['range']):>10.2f}  "
-          f"{np.mean(r['dv']):>10.2f}  "
-          f"{r['success'].mean()*100:>10.0f}")
-print("=" * 65)
+    ax = axes[0]
+    ax.fill_between(mid, lo, hi, facecolor=GREY['light'], edgecolor='none',
+                    zorder=1)
+    ax.plot(mid, avail, **series_kw(0, marker=True),
+            label='measurement availability', zorder=3)
+    ax.axvline(z_fill, color=GREY['mid'], linestyle=':', linewidth=1.0,
+               zorder=2)
+    ax.annotate(r'$z_{\mathrm{fill}} = fL/W$',
+                xy=(z_fill, 50), xytext=(z_fill * 1.35, 42),
+                fontsize=8, color=GREY['mid'])
+    ax.set_xscale('log')
+    ax.set_ylim(-5, 108)
+    style_ax(ax, xlabel='Instantaneous range  [m]',
+             ylabel='Availability  [%]', legend=True)
+    add_panel_label(ax, '(a)')
 
-# ── Fig 8 — Monte Carlo violin + success bar chart ────────────────────────────
-cfg_labels = list(CONFIGS.keys())
-cfg_colors = [C1, C2, C3]
-positions  = [1, 2, 3]
+    ax = axes[1]
+    ax.plot(mid, vis, **series_kw(1, marker=True), label='keypoints in frame')
+    ax.axvline(z_fill, color=GREY['mid'], linestyle=':', linewidth=1.0)
+    ax.axhline(6.0, color=GREY['mid'], linestyle='--', linewidth=0.9)
+    ax.annotate('solver minimum', xy=(mid[-1], 6.0), xytext=(mid[3], 6.6),
+                fontsize=8, color=GREY['mid'])
+    ax.set_xscale('log')
+    style_ax(ax, xlabel='Instantaneous range  [m]',
+             ylabel='Mean keypoints in frame', legend=True,
+             legend_loc='lower right')
+    add_panel_label(ax, '(b)')
 
-fig, axes = plt.subplots(1, 3, figsize=(13, 5), facecolor=BG)
-fig.subplots_adjust(wspace=0.42, left=0.08, right=0.97,
-                    top=0.88, bottom=0.14)
+    fig.tight_layout()
+    return save_fig(fig, path)
 
-# ── panel A: final range violin ───────────────────────────────────────────────
-ax = axes[0]
-style_ax(ax, 'Final range  [m]', f'Final Range  (N = {N_MC})')
-data_range = [mc_results[k]['range'] for k in cfg_labels]
 
-# Pad any degenerate (constant) distributions to avoid violin crash
-data_range_safe = []
-for d in data_range:
-    if np.ptp(d) < 1e-9:          # all values identical → add tiny jitter
-        d = d + np.random.default_rng(0).normal(0, 1e-6, len(d))
-    data_range_safe.append(d)
+# ── main ─────────────────────────────────────────────────────────────────────
 
-vp1 = ax.violinplot(data_range_safe, positions=positions,
-                    showmedians=True, showextrema=True, widths=0.55)
-for i, pc in enumerate(vp1['bodies']):
-    pc.set_facecolor(cfg_colors[i])
-    pc.set_edgecolor(TEXT)
-    pc.set_alpha(0.55)
-for part in ('cmedians', 'cmins', 'cmaxes', 'cbars'):
-    vp1[part].set_edgecolor(TEXT)
-    vp1[part].set_linewidth(1.2)
-ax.set_xticks(positions)
-ax.set_xticklabels(cfg_labels, fontsize=8.5, color=TEXT)
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[1])
+    ap.add_argument('--trials', type=int, default=100,
+                    help='trials per configuration in Study 1 (default 100)')
+    ap.add_argument('--noise-trials', type=int, default=40,
+                    help='trials per noise level in Study 2 (default 40)')
+    ap.add_argument('--jobs', type=int, default=1,
+                    help='parallel worker processes (default 1)')
+    ap.add_argument('--seed', type=int, default=20260901,
+                    help='campaign base seed')
+    ap.add_argument('--steps', type=int, default=250,
+                    help='simulation steps per trial')
+    args = ap.parse_args(argv)
 
-# ── panel B: total Δv violin ──────────────────────────────────────────────────
-ax = axes[1]
-style_ax(ax, 'Total Δv  [m/s]', f'Propellant Budget  (N = {N_MC})')
-data_dv = [mc_results[k]['dv'] for k in cfg_labels]
+    apply_style()
 
-data_dv_safe = []
-for d in data_dv:
-    if np.ptp(d) < 1e-9:
-        d = d + np.random.default_rng(0).normal(0, 1e-6, len(d))
-    data_dv_safe.append(d)
+    # ── Study 1 ──
+    print('=' * 72)
+    print(f'Study 1 — dispersed Monte Carlo  '
+          f'(N = {args.trials} per configuration, paired)')
+    print('=' * 72)
 
-vp2 = ax.violinplot(data_dv_safe, positions=positions,
-                    showmedians=True, showextrema=True, widths=0.55)
-for i, pc in enumerate(vp2['bodies']):
-    pc.set_facecolor(cfg_colors[i])
-    pc.set_edgecolor(TEXT)
-    pc.set_alpha(0.55)
-for part in ('cmedians', 'cmins', 'cmaxes', 'cbars'):
-    vp2[part].set_edgecolor(TEXT)
-    vp2[part].set_linewidth(1.2)
-ax.set_xticks(positions)
-ax.set_xticklabels(cfg_labels, fontsize=8.5, color=TEXT)
+    cfgs = standard_configs(n_trials=args.trials, base_seed=args.seed)
+    results = []
+    for name, mc in cfgs.items():
+        mc.base['n_steps'] = args.steps
+        print(f'\n  [{name}]')
+        res = run_campaign(mc, n_jobs=args.jobs, progress_every=10)
+        print(res.report())
+        res.to_csv(OUT / f"mc_{name.replace(' ', '_').replace(',', '')}.csv")
+        results.append(res)
 
-# ── panel C: docking success rate bar ─────────────────────────────────────────
-ax = axes[2]
-style_ax(ax, 'Docking success rate  [%]', f'Success Rate  (N = {N_MC})')
-sr_vals = [mc_results[k]['success'].mean() * 100 for k in cfg_labels]
-bars = ax.bar(positions, sr_vals, width=0.50,
-              color=cfg_colors, alpha=0.80, zorder=3,
-              edgecolor=TEXT, linewidth=0.7)
-for bar, v in zip(bars, sr_vals):
-    ax.text(bar.get_x() + bar.get_width() / 2, v + 1.5,
-            f'{v:.0f}%', ha='center', va='bottom', fontsize=9.5, color=TEXT)
-ax.set_xticks(positions)
-ax.set_xticklabels(cfg_labels, fontsize=8.5, color=TEXT)
-ax.set_ylim(0, 118)
+    print('\n' + fig_study1(results, OUT / 'expF_fig8_montecarlo.png'))
 
-fig.suptitle(
-    f'Monte Carlo Robustness Study  ·  {N_STEPS} steps  ·  '
-    f'u_max = {U_MAX} m/s²  ·  σ_pos = {POS_STD} m  ·  σ_px = {PIX_STD} px',
-    color=TEXT, fontsize=10.5, y=0.97)
+    # ── Study 2 ──
+    print('\n' + '=' * 72)
+    print(f'Study 2 — pixel-noise ablation  '
+          f'(N = {args.noise_trials} per level, paired across levels)')
+    print('=' * 72)
 
-out1 = OUT / 'expF_fig8_montecarlo_boxplot.png'
-fig.savefig(out1, dpi=180, bbox_inches='tight', facecolor=BG)
-plt.close(fig)
-print(f"\nSaved → {out1}")
+    mc_abl = MonteCarloConfig(
+        n_trials=args.noise_trials, base_seed=args.seed, label='vision + EKF',
+        dispersion=Dispersion(),
+        base=dict(n_steps=args.steps, u_max=0.3, pos_weight=15.0,
+                  vel_weight=1.5, use_vision=True, use_ekf=True),
+    )
+    curves = sweep(mc_abl, 'pixel_noise_std', NOISE_LEVELS, n_jobs=args.jobs)
+    for lvl, c in zip(NOISE_LEVELS, curves):
+        c.to_csv(OUT / f'mc_noise_{lvl:.1f}px.csv')
 
-# ── Fig 9 — Pixel-noise ablation ─────────────────────────────────────────────
-fig2, axes2 = plt.subplots(1, 2, figsize=(11, 5), facecolor=BG)
-fig2.subplots_adjust(wspace=0.42, left=0.10, right=0.97,
-                     top=0.88, bottom=0.13)
+    print('\n' + fig_study2(NOISE_LEVELS, curves,
+                            OUT / 'expF_fig9_ablation_noise.png'))
 
-# ── panel A: final range vs noise ─────────────────────────────────────────────
-ax = axes2[0]
-style_ax(ax, 'Final range  [m]',
-         'Final Range vs Pixel Noise',
-         xlabel='Pixel noise  σ_px  [px]')
-l1, = ax.plot(noise_x, abl_means, color=C1, linewidth=1.8,
-              marker='o', markersize=5, label='Mean final range')
-ax.fill_between(noise_x,
-                abl_means - abl_stds,
-                abl_means + abl_stds,
-                color=C1, alpha=ALPHA_BAND)
-band = mpatches.Patch(facecolor=MUTED, alpha=0.30, label='±1σ band')
-ax.legend(handles=[l1, band], fontsize=8.5,
-          facecolor=PANEL, edgecolor=MUTED, labelcolor=TEXT)
-ax.set_xlim(noise_x[0] - 0.1, noise_x[-1] + 0.1)
+    # ── Study 3 ──
+    print('\n' + '=' * 72)
+    print('Study 3 — measurement availability vs instantaneous range')
+    print('=' * 72)
+    full = results[-1]                      # the vision + EKF campaign
+    rows = full.availability_profile()
+    print(f"  predicted fill range  z_fill = f L / W = {Z_FILL_M:.2f} m")
+    print(f"  {'range [m]':>13}{'steps':>8}{'avail [%]':>11}"
+          f"{'95% CI':>18}{'kpts':>8}")
+    for r in rows:
+        print(f"  {r['range_lo']:5.1f}–{r['range_hi']:<7.1f}{r['n_steps']:>8}"
+              f"{r['avail']*100:>11.1f}"
+              f"   [{r['avail_ci_low']*100:5.1f},{r['avail_ci_high']*100:6.1f}]"
+              f"{r['mean_visible']:>8.1f}")
+    coarse = full.dropout_vs_range()
+    print('\n  trial-level dropout by initial range (dispersion coverage check)')
+    for r in coarse:
+        print(f"  {r['range_lo']:5.0f}–{r['range_hi']:<7.0f}{r['n']:>8}"
+              f"{r['dropout_mean']*100:>11.1f}")
+    print('\n' + fig_study3(rows, OUT / 'expF_fig10_availability.png'))
 
-# ── panel B: success rate vs noise ────────────────────────────────────────────
-ax = axes2[1]
-style_ax(ax, 'Docking success rate  [%]',
-         'Success Rate vs Pixel Noise',
-         xlabel='Pixel noise  σ_px  [px]')
-l2, = ax.plot(noise_x, abl_success, color=C1, linewidth=1.8,
-              marker='s', markersize=5, label='Success rate')
-ax.set_xlim(noise_x[0] - 0.1, noise_x[-1] + 0.1)
-ax.set_ylim(-5, 115)
-ax.legend(handles=[l2], fontsize=8.5,
-          facecolor=PANEL, edgecolor=MUTED, labelcolor=TEXT)
+    # ── LaTeX tables ──
+    tex = [
+        latex_table(results,
+                    caption=(f'Dispersed Monte Carlo campaign, '
+                             f'$N = {args.trials}$ trials per configuration '
+                             f'drawn from a common seed sequence so the three '
+                             f'configurations are compared trial-by-trial. '
+                             f'Docking success is reported with a Wilson '
+                             f'95\\,\\% score interval.'),
+                    label='tab:mc_configs'),
+        '',
+        latex_table(curves,
+                    caption=(f'Pixel-noise ablation, $N = {args.noise_trials}$ '
+                             f'paired trials per level.'),
+                    label='tab:mc_noise'),
+    ]
+    tex_path = OUT / 'mc_tables.tex'
+    tex_path.write_text('\n'.join(tex))
+    print(f'\n{tex_path}')
+    return 0
 
-fig2.suptitle(
-    f'Vision Pipeline Noise Ablation  ·  Full pipeline (vision+EKF)  ·  '
-    f'N = {N_MC_NOISE} trials per level',
-    color=TEXT, fontsize=10.5, y=0.97)
 
-out2 = OUT / 'expF_fig9_ablation_noise.png'
-fig2.savefig(out2, dpi=180, bbox_inches='tight', facecolor=BG)
-plt.close(fig2)
-print(f"Saved → {out2}")
+if __name__ == '__main__':
+    raise SystemExit(main())

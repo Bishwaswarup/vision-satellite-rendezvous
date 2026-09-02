@@ -1,0 +1,23 @@
+{
+  "model_name": "3U CubeSat",
+  "n_frames": 5,
+  "range_min": 10.0,
+  "range_max": 50.0,
+  "elevation_min": -60.0,
+  "elevation_max": 60.0,
+  "seed": 0,
+  "n_keypoints": 11,
+  "keypoint_names": [
+    "corner_000",
+    "corner_100",
+    "corner_110",
+    "corner_010",
+    "corner_001",
+    "corner_101",
+    "corner_111",
+    "corner_011",
+    "face_pos_x",
+    "face_neg_x",
+    "centre"
+  ]
+}

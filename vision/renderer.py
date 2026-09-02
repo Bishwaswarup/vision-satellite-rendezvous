@@ -171,13 +171,42 @@ class DebrisRenderer:
                 _fill_polygon(canvas, zbuf, pts, color, float(depth))
 
         # ── Rasterise edges (wireframe) ───────────────────────────────────
+        #
+        # Edges must be clipped against the near plane in 3-D, BEFORE
+        # projection.  `camera.project` returns the principal point as a
+        # placeholder for any vertex behind the camera, so projecting first and
+        # drawing the segment anyway produces a sheaf of spurious lines
+        # radiating from the image centre — very visible at close range, where
+        # part of the body is behind the camera plane.
         if self.cfg.draw_edges:
+            Z_NEAR = 1e-3                     # [m]
+            fx, fy = self.cam.K[0, 0], self.cam.K[1, 1]
+            cx, cy = self.cam.K[0, 2], self.cam.K[1, 2]
+
+            def _project_one(P):
+                z = max(P[2], Z_NEAR)
+                return (int(round(fx * P[0] / z + cx)),
+                        int(round(fy * P[1] / z + cy)))
+
             for (ia, ib) in model.edges:
-                if not (vis_all[ia] or vis_all[ib]):
-                    if z_all[ia] <= 0 and z_all[ib] <= 0:
-                        continue
-                ua, va = int(round(uv_all[ia, 0])), int(round(uv_all[ia, 1]))
-                ub, vb = int(round(uv_all[ib, 0])), int(round(uv_all[ib, 1]))
+                Pa, Pb = V_cam[ia], V_cam[ib]
+                za, zb = Pa[2], Pb[2]
+
+                if za <= Z_NEAR and zb <= Z_NEAR:
+                    continue                  # wholly behind the camera
+                if za <= Z_NEAR or zb <= Z_NEAR:
+                    # Move the behind-camera endpoint to the near plane along
+                    # the segment, so the visible part is drawn where it
+                    # actually belongs.
+                    s_clip = (Z_NEAR - za) / (zb - za)
+                    Pc = Pa + s_clip * (Pb - Pa)
+                    if za <= Z_NEAR:
+                        Pa = Pc
+                    else:
+                        Pb = Pc
+
+                ua, va = _project_one(Pa)
+                ub, vb = _project_one(Pb)
                 _draw_line(canvas, ua, va, ub, vb,
                            self.cfg.edge_color, W, H)
 

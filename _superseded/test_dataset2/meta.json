@@ -1,0 +1,27 @@
+{
+  "model_name": "Ariane 44L upper stage",
+  "n_frames": 3,
+  "range_min": 10.0,
+  "range_max": 50.0,
+  "elevation_min": -60.0,
+  "elevation_max": 60.0,
+  "seed": 99,
+  "n_keypoints": 15,
+  "keypoint_names": [
+    "nose",
+    "nozzle_tip",
+    "body_centre",
+    "nozzle_rim_0",
+    "mid_ring_0",
+    "nose_rim_0",
+    "nozzle_rim_1",
+    "mid_ring_1",
+    "nose_rim_1",
+    "nozzle_rim_2",
+    "mid_ring_2",
+    "nose_rim_2",
+    "nozzle_rim_3",
+    "mid_ring_3",
+    "nose_rim_3"
+  ]
+}

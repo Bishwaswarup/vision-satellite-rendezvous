@@ -206,17 +206,35 @@ def test_rodrigues_roundtrip_r_to_R():
 
 # ── Test 11: Refiner reduces reprojection error ───────────────────────────────
 def test_refiner_reduces_error():
-    pts3d, pts2d, R_gt, t_gt = _synthetic_correspondences(N=15, noise_px=1.0)
-    R_init, t_init, errs_init, ok = solve_epnp(pts3d, pts2d, K)
-    assert ok
-    cost_init = errs_init.mean()**2
+    """
+    Levenberg-Marquardt only ever commits a step that lowers the objective, so
+    the refined cost can never exceed the initial one.
 
-    R_ref, t_ref, cost_ref = refine_pose(R_init, t_init, pts3d, pts2d, K)
-    # LM only ever commits a step that strictly lowers the cost, so the refined
-    # cost can never exceed the initial one.  (This assertion used to allow a
-    # 2x INCREASE, which let a diverging refiner pass.)
-    assert cost_ref <= cost_init, \
-        f"Refiner increased the cost: {cost_ref:.4f} vs {cost_init:.4f}"
+    The comparison must be like-for-like.  `refine_pose` returns the MEAN OF
+    THE SQUARED reprojection distances, whereas `solve_epnp` returns the
+    per-point distances themselves; `errs.mean() ** 2` is the SQUARE OF THE
+    MEAN, which is a different quantity.  By Jensen's inequality
+
+        mean(e^2) = (mean e)^2 + var(e)  >=  (mean e)^2
+
+    so comparing the refined cost against `errs.mean() ** 2` is biased against
+    the refiner by exactly the variance of the residuals — typically 20-75 %
+    here, which is why this assertion originally carried a factor-of-2 fudge.
+    Squaring first removes the mismatch and the bound then holds by
+    construction, not by luck.
+    """
+    for seed in range(8):
+        pts3d, pts2d, R_gt, t_gt = _synthetic_correspondences(
+            N=15, noise_px=1.0, seed=seed)
+        R_init, t_init, errs_init, ok = solve_epnp(pts3d, pts2d, K)
+        assert ok
+
+        cost_init = float((errs_init ** 2).mean())      # mean of squares
+        R_ref, t_ref, cost_ref = refine_pose(R_init, t_init, pts3d, pts2d, K)
+
+        assert cost_ref <= cost_init * (1 + 1e-9) + 1e-12, (
+            f"seed {seed}: refiner increased the cost, "
+            f"{cost_ref:.6f} vs {cost_init:.6f}")
 
 
 # ── Test 12: Refiner output is valid SO(3) ────────────────────────────────────

@@ -109,12 +109,13 @@
   number  = {5},
   pages   = {1478--1489},
   year    = {2008},
-  doi     = {10.2514/1.34024}
+  doi     = {10.2514/1.29590}
 }
 
 % ── Robust estimation ─────────────────────────────────────────────────────────
 @inproceedings{chum2003loransac,
-  author    = {Chum, Ond{\v{r}}ej and Matas, Ji{\v{r}}{\'{i}}},
+  author    = {Chum, Ond{\v{r}}ej and Matas, Ji{\v{r}}{\'{i}} and
+               Kittler, Josef},
   title     = {Locally Optimized {RANSAC}},
   booktitle = {Proceedings of the 25th {DAGM} Symposium on Pattern Recognition},
   series    = {Lecture Notes in Computer Science},
@@ -151,9 +152,238 @@
 @inproceedings{sharma2018,
   author    = {Sharma, Sumant and Beierle, Conrad and D'Amico, Simone},
   title     = {Pose Estimation for Non-Cooperative Spacecraft Rendezvous
-               Using Neural Networks},
+               Using Convolutional Neural Networks},
   booktitle = {2018 IEEE Aerospace Conference},
   pages     = {1--12},
   year      = {2018},
   doi       = {10.1109/AERO.2018.8396425}
+}
+
+% ═════════════════════════════════════════════════════════════════════════════
+%  Learning-based spacecraft pose estimation and its benchmarks (2018--2026)
+% ═════════════════════════════════════════════════════════════════════════════
+
+@article{sharma2020nn,
+  author  = {Sharma, Sumant and D'Amico, Simone},
+  title   = {Neural Network-Based Pose Estimation for Noncooperative
+             Spacecraft Rendezvous},
+  journal = {IEEE Transactions on Aerospace and Electronic Systems},
+  volume  = {56},
+  number  = {6},
+  pages   = {4638--4658},
+  year    = {2020},
+  doi     = {10.1109/TAES.2020.2999148}
+}
+
+@article{kisantal2020,
+  author  = {Kisantal, Mate and Sharma, Sumant and Park, Tae Ha and
+             Izzo, Dario and M{\"a}rtens, Marcus and D'Amico, Simone},
+  title   = {Satellite Pose Estimation Challenge: Dataset, Competition
+             Design, and Results},
+  journal = {IEEE Transactions on Aerospace and Electronic Systems},
+  volume  = {56},
+  number  = {5},
+  pages   = {4083--4098},
+  year    = {2020},
+  doi     = {10.1109/TAES.2020.2989063}
+}
+
+@inproceedings{park2022speedplus,
+  author    = {Park, Tae Ha and M{\"a}rtens, Marcus and Lecuyer, Gurvan and
+               Izzo, Dario and D'Amico, Simone},
+  title     = {{SPEED+}: Next-Generation Dataset for Spacecraft Pose
+               Estimation across Domain Gap},
+  booktitle = {2022 IEEE Aerospace Conference (AERO)},
+  pages     = {1--15},
+  year      = {2022},
+  doi       = {10.1109/AERO53065.2022.9843439}
+}
+
+@article{park2023spec2021,
+  author  = {Park, Tae Ha and M{\"a}rtens, Marcus and Jawaid, Mohsi and
+             Wang, Zi and Chen, Bo and Chin, Tat-Jun and Izzo, Dario and
+             D'Amico, Simone},
+  title   = {Satellite Pose Estimation Competition 2021: Results and Analyses},
+  journal = {Acta Astronautica},
+  volume  = {204},
+  pages   = {640--665},
+  year    = {2023},
+  doi     = {10.1016/j.actaastro.2023.01.002}
+}
+
+@article{park2024spnv2,
+  author  = {Park, Tae Ha and D'Amico, Simone},
+  title   = {Robust Multi-Task Learning and Online Refinement for Spacecraft
+             Pose Estimation across Domain Gap},
+  journal = {Advances in Space Research},
+  volume  = {73},
+  number  = {11},
+  pages   = {5726--5740},
+  year    = {2024},
+  doi     = {10.1016/j.asr.2023.03.036}
+}
+
+@article{park2026spnv3,
+  author  = {Park, Tae Ha and D'Amico, Simone},
+  title   = {Bridging the Domain Gap for Flight-Ready Spaceborne Vision},
+  journal = {Journal of Spacecraft and Rockets},
+  volume  = {63},
+  number  = {1},
+  pages   = {289--307},
+  year    = {2026},
+  doi     = {10.2514/1.A36130}
+}
+
+@inproceedings{proenca2020urso,
+  author    = {Proen{\c{c}}a, Pedro F. and Gao, Yang},
+  title     = {Deep Learning for Spacecraft Pose Estimation from
+               Photorealistic Rendering},
+  booktitle = {2020 IEEE International Conference on Robotics and
+               Automation (ICRA)},
+  pages     = {6007--6013},
+  year      = {2020},
+  doi       = {10.1109/ICRA40945.2020.9197244}
+}
+
+% ═════════════════════════════════════════════════════════════════════════════
+%  Reviews and coupled pose-estimation / navigation-filter studies
+% ═════════════════════════════════════════════════════════════════════════════
+
+@article{opromolla2017review,
+  author  = {Opromolla, Roberto and Fasano, Giancarmine and Rufino, Giancarlo
+             and Grassi, Michele},
+  title   = {A Review of Cooperative and Uncooperative Spacecraft Pose
+             Determination Techniques for Close-Proximity Operations},
+  journal = {Progress in Aerospace Sciences},
+  volume  = {93},
+  pages   = {53--72},
+  year    = {2017},
+  doi     = {10.1016/j.paerosci.2017.07.001}
+}
+
+@article{cassinis2019review,
+  author  = {Pasqualetto Cassinis, Lorenzo and Fonod, Robert and Gill, Eberhard},
+  title   = {Review of the Robustness and Applicability of Monocular Pose
+             Estimation Systems for Relative Navigation with an Uncooperative
+             Spacecraft},
+  journal = {Progress in Aerospace Sciences},
+  volume  = {110},
+  pages   = {100548},
+  year    = {2019},
+  doi     = {10.1016/j.paerosci.2019.05.008}
+}
+
+@article{cassinis2021coupled,
+  author  = {Pasqualetto Cassinis, Lorenzo and Fonod, Robert and
+             Gill, Eberhard and Ahrns, Ingo and Gil-Fern{\'a}ndez, Jesus},
+  title   = {Evaluation of Tightly- and Loosely-Coupled Approaches in
+             {CNN}-Based Pose Estimation Systems for Uncooperative Spacecraft},
+  journal = {Acta Astronautica},
+  volume  = {182},
+  pages   = {189--202},
+  year    = {2021},
+  doi     = {10.1016/j.actaastro.2021.01.035}
+}
+
+% ═════════════════════════════════════════════════════════════════════════════
+%  Modern PnP solvers and robust estimators
+% ═════════════════════════════════════════════════════════════════════════════
+
+@inproceedings{terzakis2020sqpnp,
+  author    = {Terzakis, George and Lourakis, Manolis},
+  title     = {A Consistently Fast and Globally Optimal Solution to the
+               Perspective-$n$-Point Problem},
+  booktitle = {Computer Vision -- {ECCV} 2020},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {12346},
+  pages     = {478--494},
+  publisher = {Springer},
+  year      = {2020},
+  doi       = {10.1007/978-3-030-58452-8\_28}
+}
+
+@inproceedings{ke2017ap3p,
+  author    = {Ke, Tong and Roumeliotis, Stergios I.},
+  title     = {An Efficient Algebraic Solution to the
+               Perspective-Three-Point Problem},
+  booktitle = {2017 IEEE Conference on Computer Vision and Pattern
+               Recognition (CVPR)},
+  pages     = {4618--4626},
+  year      = {2017},
+  doi       = {10.1109/CVPR.2017.491}
+}
+
+@inproceedings{barath2020magsacpp,
+  author    = {Barath, Daniel and Noskova, Jana and Ivashechkin, Maksym and
+               Matas, Ji{\v{r}}{\'{i}}},
+  title     = {{MAGSAC++}, a Fast, Reliable and Accurate Robust Estimator},
+  booktitle = {2020 IEEE/CVF Conference on Computer Vision and Pattern
+               Recognition (CVPR)},
+  pages     = {1301--1309},
+  year      = {2020},
+  doi       = {10.1109/CVPR42600.2020.00138}
+}
+
+@article{raguram2013usac,
+  author  = {Raguram, Rahul and Chum, Ond{\v{r}}ej and Pollefeys, Marc and
+             Matas, Ji{\v{r}}{\'{i}} and Frahm, Jan-Michael},
+  title   = {{USAC}: A Universal Framework for Random Sample Consensus},
+  journal = {IEEE Transactions on Pattern Analysis and Machine Intelligence},
+  volume  = {35},
+  number  = {8},
+  pages   = {2022--2038},
+  year    = {2013},
+  doi     = {10.1109/TPAMI.2012.257}
+}
+
+% ═════════════════════════════════════════════════════════════════════════════
+%  Constrained guidance and control for proximity operations
+% ═════════════════════════════════════════════════════════════════════════════
+
+@article{dicairano2012mpc,
+  author  = {Di Cairano, Stefano and Park, Hyeongjun and
+             Kolmanovsky, Ilya},
+  title   = {Model Predictive Control Approach for Guidance of Spacecraft
+             Rendezvous and Proximity Maneuvering},
+  journal = {International Journal of Robust and Nonlinear Control},
+  volume  = {22},
+  number  = {12},
+  pages   = {1398--1427},
+  year    = {2012},
+  doi     = {10.1002/rnc.2827}
+}
+
+@article{specht2023tubempc,
+  author  = {Specht, Caroline and Bishnoi, Abhiraj and Lampariello, Roberto},
+  title   = {Autonomous Spacecraft Rendezvous Using Tube-Based Model
+             Predictive Control: Design and Application},
+  journal = {Journal of Guidance, Control, and Dynamics},
+  volume  = {46},
+  number  = {7},
+  pages   = {1243--1261},
+  year    = {2023},
+  doi     = {10.2514/1.G007280}
+}
+
+% ═════════════════════════════════════════════════════════════════════════════
+%  Missions
+% ═════════════════════════════════════════════════════════════════════════════
+
+@article{aglietti2020removedebris,
+  author  = {Aglietti, Guglielmo S. and Taylor, Ben and Fellowes, Simon and
+             Ainley, Stephen and Tye, Daniel and Cox, Chiara and
+             Zarkesh, Alexander and Mafficini, Andrea and Vinkoff, Neil and
+             Bashford, Kirsty and Salmon, Thierry and Retat, Ingo and
+             Burgess, Cesar and Hall, Andrew and Chabot, Thomas and
+             Kanani, Kamel and Pisseloup, Aurelien and Bernal, Cesar and
+             Chaumette, Fran{\c{c}}ois and Pollini, Lorenzo and
+             Steyn, Willem H.},
+  title   = {{RemoveDEBRIS}: An In-Orbit Demonstration of Technologies for
+             the Removal of Space Debris},
+  journal = {The Aeronautical Journal},
+  volume  = {124},
+  number  = {1271},
+  pages   = {1--23},
+  year    = {2020},
+  doi     = {10.1017/aer.2019.136}
 }

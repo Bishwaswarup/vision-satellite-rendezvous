@@ -54,14 +54,36 @@ them skip when they are absent.
 
 ```bash
 python main.py check        # 10-second smoke test of every subsystem
-python main.py test         # 141 tests (a few skip without the extras)
+python main.py test         # 174 tests (a few skip without the extras)
 python main.py figures      # experiments A-F  ->  outputs/*.png
 python main.py animate      # closed-loop GIF + summary sheet
+python main.py dualview     # camera feed + 3-D LVLH view, side by side
+python main.py montecarlo   # dispersed Monte Carlo campaign + noise ablation
 python main.py all          # everything, in order
 ```
 
 Every command takes `--help`. `main.py figures --only D,E` runs a subset;
-`main.py animate --no-vision --full-run` renders the estimator-isolation case.
+`main.py animate --no-vision --full-run` renders the estimator-isolation case;
+`main.py montecarlo --trials 100 --noise-trials 40 --jobs 4` runs the full campaign
+(about 8 minutes on two cores) and writes per-trial CSVs plus `outputs/mc_tables.tex`.
+
+### Monte Carlo
+
+`simulation/montecarlo.py` disperses the *initial conditions*, not just the RNG
+seed: initial range (log-uniform), bearing within a cone about the approach axis,
+closing speed, tumble rate about an isotropic axis, target attitude uniform on
+SO(3), navigation initialisation error and sensor noise. Every trial's dispersion
+draw and simulator seed descend from one `SeedSequence` spawned per trial, so a
+trial is reproducible in isolation, independent of the campaign size and of
+execution order, and identical serial or parallel — `tests/test_montecarlo.py`
+checks each of those rather than assuming them. Success rates come with Wilson
+score intervals, because a normal interval on 24/25 reaches above 100 %.
+
+The campaign's headline reducer is `availability_profile()`: per-step measurement
+availability binned by *instantaneous* range. Binning by initial range says
+nothing, since every trial that closes traverses the whole interval. Pooled over
+3887 steps of 100 trials, availability is 100 % beyond 6 m and 1.8 % inside 1 m —
+the knee sits exactly at the closed-form fill range z_fill = fL/W = 6.25 m.
 
 All figures are written to `outputs/` in **print-safe monochrome** — series are
 separated by grey level, line style and marker rather than by hue, so they survive a
@@ -84,6 +106,10 @@ loop**, there is no feature detector, no data association, and no occlusion reas
 
 The renderer in `vision/renderer.py` is real and produces the camera views used in the
 animation and in the dataset generator — it is simply not in the estimation path.
+`python main.py dualview` shows both sides of this at once: the rendered camera feed
+with the projected keypoints and the visibility gate, beside an external 3-D view of
+the chaser, its camera frustum and the target's true attitude in LVLH. It is the
+quickest way to see the field-of-view exit that Sec. *The dropout result* quantifies.
 
 **What is modelled:** Hill-Clohessy-Wiltshire relative translation, torque-free Euler
 attitude with quaternion kinematics, a calibrated pinhole camera with Brown-Conrady
@@ -138,9 +164,11 @@ controller/
 simulation/
   runner.py              closed-loop simulator
   video.py               animation and summary-sheet export
+  dualview.py            camera feed beside an external 3-D view
+  montecarlo.py          dispersed Monte Carlo campaign driver
 
 experiments/             experiment_A ... experiment_F - the paper's figures
-tests/                   141 unit tests
+tests/                   174 unit tests
 notebooks/phase7_demo.py Phase-7 walkthrough figures
 ```
 
@@ -262,7 +290,7 @@ it as a reference and skip without it.
 ## Testing
 
 ```bash
-python main.py test              # all 141
+python main.py test              # all 174
 python main.py test -k epnp      # a subset
 ```
 

@@ -9,6 +9,7 @@ Single entry point for the vision-based satellite rendezvous simulator.
     python main.py test             unit tests only
     python main.py figures          the six experiments -> outputs/*.png
     python main.py animate          closed-loop GIF + summary sheet
+    python main.py dualview         camera feed + 3-D LVLH view, side by side
     python main.py demo             Phase-7 walkthrough figures
     python main.py check            fast smoke test of the whole pipeline
 
@@ -153,6 +154,56 @@ def run_animate(args) -> int:
     return 0
 
 
+def run_dualview(args) -> int:
+    """Camera feed beside an external 3-D view of the same run."""
+    step('Dual-view animation')
+    OUT.mkdir(exist_ok=True)
+
+    import numpy as np
+    from simulation.runner import RendezvousSimulator, SimConfig
+    from simulation.dualview import export_dual_gif, export_dual_contact_sheet
+
+    cfg = SimConfig(n_steps=args.steps, use_vision=not args.no_vision)
+    if args.full_run:
+        cfg.stop_at_dock = False
+
+    print(f'   simulating {cfg.n_steps} steps ...')
+    res = RendezvousSimulator(cfg, rng_seed=args.seed).run()
+    print(f'   flown {res.n_steps_run} steps   '
+          f'docked: {res.dock_step or "no"}   '
+          f'dropout {res.vision_dropout_rate * 100:.1f} %')
+
+    t0 = time.perf_counter()
+    sheet = OUT / 'dualview_sequence.png'
+    export_dual_contact_sheet(res, str(sheet), n=args.panels)
+    print(f'   {sheet}')
+
+    if not args.no_gif:
+        gif = OUT / 'dualview.gif'
+        print(f'   rendering frames -> {gif.name} ...')
+        export_dual_gif(res, str(gif), fps=args.fps, step=args.frame_step,
+                        spin=args.spin, verbose=True)
+        print(f'   {gif}   ({gif.stat().st_size / 1e6:.1f} MB)')
+
+    print(f'   done in {_fmt(time.perf_counter() - t0)}')
+    return 0
+
+
+def run_montecarlo(args) -> int:
+    """Run the dispersed Monte Carlo campaign (Experiment F)."""
+    step('Monte Carlo campaign')
+    cmd = [sys.executable, 'experiments/experiment_F.py',
+           '--trials', str(args.trials),
+           '--noise-trials', str(args.noise_trials),
+           '--jobs', str(args.jobs),
+           '--seed', str(args.seed),
+           '--steps', str(args.steps)]
+    t0 = time.perf_counter()
+    rc = subprocess.call(cmd, cwd=ROOT)
+    print(f'   done in {_fmt(time.perf_counter() - t0)}')
+    return rc
+
+
 def run_demo(args) -> int:
     """Run the Phase-7 walkthrough, which produces the tutorial figures."""
     step('Phase-7 demo figures')
@@ -280,6 +331,37 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument('--full-run', action='store_true',
                    help='do not stop the simulation at docking')
     s.set_defaults(func=run_animate)
+
+    s = sub.add_parser('dualview',
+                       help='camera feed beside a 3-D LVLH view')
+    s.add_argument('--steps', type=int, default=600)
+    s.add_argument('--fps', type=int, default=8)
+    s.add_argument('--frame-step', type=int, default=1,
+                   help='render every Nth simulation step')
+    s.add_argument('--panels', type=int, default=6,
+                   help='frames in the still contact sheet')
+    s.add_argument('--spin', type=float, default=0.0,
+                   help='degrees of azimuth added per frame, to orbit the view')
+    s.add_argument('--seed', type=int, default=42)
+    s.add_argument('--no-vision', action='store_true')
+    s.add_argument('--full-run', action='store_true')
+    s.add_argument('--no-gif', action='store_true',
+                   help='write only the contact sheet')
+    s.set_defaults(func=run_dualview)
+
+    s = sub.add_parser('montecarlo',
+                       help='dispersed Monte Carlo campaign + noise ablation')
+    s.add_argument('--trials', type=int, default=100,
+                   help='trials per configuration (default 100)')
+    s.add_argument('--noise-trials', type=int, default=40,
+                   help='trials per pixel-noise level (default 40)')
+    s.add_argument('--jobs', type=int, default=1,
+                   help='parallel worker processes (default 1)')
+    s.add_argument('--seed', type=int, default=20260901,
+                   help='campaign base seed')
+    s.add_argument('--steps', type=int, default=250,
+                   help='simulation steps per trial')
+    s.set_defaults(func=run_montecarlo)
 
     s = sub.add_parser('demo', help='Phase-7 walkthrough figures')
     s.set_defaults(func=run_demo)
