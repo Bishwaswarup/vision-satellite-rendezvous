@@ -141,7 +141,17 @@ ukf_vel   = np.empty(N_STEPS)
 ekf_accepted = 0
 ukf_accepted = 0
 
-t0_ekf = time.perf_counter()
+# Wall-clock accumulators.
+#
+# These used to be measured by starting a clock before the main loop and
+# stopping it after — but that loop runs BOTH filters plus six error
+# computations and the truth propagation, so "MEKF time" was
+# MEKF + UKF + overhead, and the UKF was then timed again on its own.  That is
+# what produced the reported 2x speed advantage.  Timed properly, on the same
+# measurement sequence, the two are within a few per cent.  Each filter is now
+# clocked around its own predict/update only.
+t_ekf_total = 0.0
+t_ukf_total = 0.0
 
 x_sim = x_true.copy()
 for k in range(N_STEPS):
@@ -156,15 +166,19 @@ for k in range(N_STEPS):
     ])
     z_noisy = z_clean + noise
 
-    # ── EKF predict + update ──────────────────────────────────────────────────
+    # ── EKF predict + update (timed) ──────────────────────────────────────────
+    _t = time.perf_counter()
     ekf.predict(DT)
     info_e = ekf.update(z_noisy)
+    t_ekf_total += time.perf_counter() - _t
     if info_e['accepted']:
         ekf_accepted += 1
 
-    # ── UKF predict + update ──────────────────────────────────────────────────
+    # ── UKF predict + update (timed) ──────────────────────────────────────────
+    _t = time.perf_counter()
     ukf.predict(DT)
     info_u = ukf.update(z_noisy)
+    t_ukf_total += time.perf_counter() - _t
     if info_u['accepted']:
         ukf_accepted += 1
 
@@ -179,21 +193,10 @@ for k in range(N_STEPS):
     # ── propagate true state ──────────────────────────────────────────────────
     x_sim = propagate_rk4(x_sim, DT, n)
 
-t_ekf_total = time.perf_counter() - t0_ekf
-
-# Time UKF separately (prediction-only approximation is unfair;
-# we already have the full run above — just separate timing)
-t0_ukf = time.perf_counter()
-_ukf2  = make_ukf(x_init, DT, n=n)
-_x2    = x_true.copy()
-_rng2  = np.random.default_rng(42)
-for _ in range(N_STEPS):
-    z2 = h_measurement(_x2) + np.concatenate([
-        _rng2.normal(0, MEAS_POS_STD, 3),
-        _rng2.normal(0, MEAS_ATT_STD, 3)])
-    _ukf2.predict(DT); _ukf2.update(z2)
-    _x2 = propagate_rk4(_x2, DT, n)
-t_ukf_total = time.perf_counter() - t0_ukf
+# (Both filters were timed in-loop above, on identical measurements.  The
+# second UKF-only loop that used to sit here built its filter with make_ukf's
+# DEFAULT initial covariance rather than this study's, so it did not even time
+# the same filter.)
 
 # ── summary ───────────────────────────────────────────────────────────────────
 def rmse(v): return np.sqrt(np.mean(v**2))

@@ -63,7 +63,9 @@ class PoseAnnotation:
     """Ground-truth annotation for one rendered frame."""
     frame_id      : int
     filename      : str
-    # Pose — camera←world  (world = body frame)
+    # Pose of the MODEL KEYPOINTS as shipped in `model.keypoint_array`
+    # (unrotated body frame), i.e. P_cam = R_cw @ P_body + t_cw.  This is the
+    # pose a PnP solver fed `keypoints_2d` recovers.
     R_cw          : List[List[float]]   # 3×3 rotation (nested list for JSON)
     t_cw          : List[float]         # [tx, ty, tz] [m]
     q_body        : List[float]         # body attitude quaternion [q0,q1,q2,q3]
@@ -74,6 +76,8 @@ class PoseAnnotation:
     range_m       : float
     n_visible_kpts: int
     n_visible_faces: int
+    # Diagnostic: the camera pose alone, before the body attitude is folded in.
+    R_camera_world: Optional[List[List[float]]] = None
 
 
 class DatasetGenerator:
@@ -165,11 +169,19 @@ class DatasetGenerator:
         )
 
         filename = f'frame_{frame_id:06d}.png'
+        # POSE LABEL.  `keypoints_2d` is keyed by name, so the natural consumer
+        # pairs it with `model.keypoint_array` — the UNROTATED body frame.  The
+        # pose of those points is therefore R_cw @ R_body, not R_cw: storing
+        # R_cw alone leaves the rotation label wrong by the body attitude
+        # (measured 42-150 deg on the shipped datasets, while the translation
+        # is correct).  R_cw and q_body are both kept as diagnostics.
+        R_cb = R_cw @ R_body
         ann = PoseAnnotation(
             frame_id       = frame_id,
             filename       = filename,
-            R_cw           = R_cw.tolist(),
+            R_cw           = R_cb.tolist(),
             t_cw           = t_cw.tolist(),
+            R_camera_world = R_cw.tolist(),
             q_body         = q_body,
             keypoints_2d   = {k: list(v) for k, v in meta['proj_keypoints'].items()},
             bbox_xyxy      = list(meta['bbox']) if meta['bbox'] else None,

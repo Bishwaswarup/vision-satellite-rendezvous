@@ -31,7 +31,15 @@ import numpy as np
 N_ORBITAL = 1.1368e-3          # rad/s   (μ/a³)^(1/2), a = 6778 km
 
 # Ariane 44L upper-stage inertia (approximate, dry mass ~1200 kg)
-J_ARIANE = np.diag([1800.0, 1800.0, 360.0])   # kg·m²
+J_ARIANE = np.diag([1176.0, 6988.0, 6988.0])
+# Ariane 44L upper stage, matching target.attitude.ariane_upper_stage()
+# and the geometry in vision.body_model (x is the symmetry axis):
+#   m = 1200 kg, r = 1.4 m, L = 8.0 m
+#   I_xx = m r^2 / 2 = 1176,  I_yy = I_zz = m(3r^2 + L^2)/12 = 6988
+# This used to be diag(1800, 1800, 360) — a different body with the
+# symmetry axis on z instead of x.  Since propagate_rk4 uses THIS
+# tensor, that wrong one drove the target attitude in every reported
+# result while target/attitude.py was only ever reached by the tests.   # kg·m²
 J_INV    = np.linalg.inv(J_ARIANE)
 
 
@@ -51,6 +59,39 @@ def quat_mult(p, q):
 
 def quat_norm(q):
     return q / np.linalg.norm(q)
+
+
+def quat_inv(q):
+    """Inverse of a unit quaternion [x,y,z,w]."""
+    q = np.asarray(q, dtype=float)
+    return np.array([-q[0], -q[1], -q[2], q[3]])
+
+
+def attitude_residual(rv_meas, q_est):
+    """
+    Multiplicative attitude residual, in the tangent space at `q_est`.
+
+        delta_alpha = rotvec( q_meas  (x)  q_est^-1 )
+
+    `rv_meas` is the measured attitude encoded as a rotation vector (which is
+    what the measurement vector carries); it is converted back to a quaternion
+    and the residual is taken on the group, not by subtracting rotation
+    vectors.
+
+    Subtracting global rotation vectors is wrong for two reasons.  The map
+    q -> rotvec(q) is singular at theta = pi: two attitudes a hair either side
+    of pi map to nearly ANTIPODAL rotation vectors, so the difference is
+    O(2*pi) even though the attitudes are almost identical.  And away from the
+    singularity the difference is still only an approximation of the true
+    error, so R stops being a valid tangent-space covariance.  The
+    multiplicative residual is exact everywhere and makes H_att exactly I3.
+    """
+    q_meas = rotvec_to_quat(np.asarray(rv_meas, dtype=float))
+    q_est  = quat_norm(np.asarray(q_est, dtype=float))
+    dq     = quat_mult(q_meas, quat_inv(q_est))
+    if dq[3] < 0:                 # keep the short rotation
+        dq = -dq
+    return quat_to_rotvec(dq)
 
 
 def quat_to_dcm(q):
@@ -244,16 +285,33 @@ def h_measurement(x):
       r_meas : rotation vector from DCM of target attitude
     """
     r, v, q, omega = unpack_state(x)
-    R = quat_to_dcm(q)
     rv = quat_to_rotvec(q)
     return np.concatenate([r, rv])
 
 
 def measurement_jacobian(x):
     """
-    Measurement Jacobian H (6×12) via finite differences.
-    Maps error state δx → measurement residual δz.
+    Measurement Jacobian H (6×12) mapping the error state to the residual.
+
+    With the multiplicative attitude residual of `attitude_residual`, H is
+    exact and constant:
+
+        innovation = [ r_meas - r_hat ,  delta_alpha ]
+                   = [ I3  0  0  0 ;  0  0  I3  0 ] @ error_state
+
+    because delta_alpha IS the attitude error state by construction.  No
+    finite differencing is needed — and differencing the *global* rotation
+    vector, as this used to, produces a Jacobian whose condition number blows
+    up to ~2e5 near theta = pi.
     """
+    H = np.zeros((6, 12))
+    H[0:3, 0:3] = np.eye(3)      # position measures position
+    H[3:6, 6:9] = np.eye(3)      # attitude residual measures attitude error
+    return H
+
+
+def _measurement_jacobian_fd(x):
+    """Finite-difference Jacobian of the raw h(x); kept for cross-checks."""
     eps = 1e-5
     z0 = h_measurement(x)
     r, v, q, omega = unpack_state(x)
@@ -282,28 +340,187 @@ def measurement_jacobian(x):
 # ── Default noise matrices ─────────────────────────────────────────────────────
 
 def default_process_noise(dt, pos_std=0.1, vel_std=0.01,
-                           att_std=1e-4, rate_std=1e-5):
+                           att_std=1e-4, rate_std=1e-5,
+                           accel_std=None, ang_accel_std=None):
     """
-    Diagonal process noise Q (12×12).
-    Scaled by dt so noise density is consistent across step sizes.
+    Process noise Q (12×12).
+
+    Two models are available.
+
+    ``accel_std`` given — the physically correct one.  The disturbance is an
+    unmodelled ACCELERATION, which drives position and velocity together:
+
+        [Q_rr  Q_rv]   =  sigma_a^2  [ dt^3/3   dt^2/2 ]
+        [Q_vr  Q_vv]                 [ dt^2/2   dt     ]
+
+    with the same structure on attitude/rate for `ang_accel_std`.  Note the
+    off-diagonal terms: position and velocity errors driven by a common
+    acceleration are correlated, and a diagonal Q asserts they are not.
+
+    ``accel_std`` omitted — the legacy diagonal random walk, kept so existing
+    callers behave as before.  It is not physical: an independent position
+    random walk of `pos_std` = 0.05 m contributes Q_rr = 2.5e-3 m^2 per step,
+    roughly 300x the 8.3e-6 m^2 an actual 5e-4 m/s^2 disturbance produces, so
+    the filter is made needlessly conservative and velocity is only weakly
+    informed by position measurements.
     """
-    diag = np.concatenate([
-        np.full(3, pos_std**2  * dt),
-        np.full(3, vel_std**2  * dt),
-        np.full(3, att_std**2  * dt),
-        np.full(3, rate_std**2 * dt),
-    ])
-    return np.diag(diag)
+    if accel_std is None:
+        diag = np.concatenate([
+            np.full(3, pos_std**2  * dt),
+            np.full(3, vel_std**2  * dt),
+            np.full(3, att_std**2  * dt),
+            np.full(3, rate_std**2 * dt),
+        ])
+        return np.diag(diag)
+
+    Q = np.zeros((12, 12))
+    I3 = np.eye(3)
+
+    sa2 = float(accel_std) ** 2
+    Q[0:3, 0:3] = sa2 * dt**3 / 3.0 * I3
+    Q[0:3, 3:6] = sa2 * dt**2 / 2.0 * I3
+    Q[3:6, 0:3] = sa2 * dt**2 / 2.0 * I3
+    Q[3:6, 3:6] = sa2 * dt * I3
+
+    sw2 = float(ang_accel_std if ang_accel_std is not None else rate_std) ** 2
+    Q[6:9,  6:9 ] = sw2 * dt**3 / 3.0 * I3
+    Q[6:9,  9:12] = sw2 * dt**2 / 2.0 * I3
+    Q[9:12, 6:9 ] = sw2 * dt**2 / 2.0 * I3
+    Q[9:12, 9:12] = sw2 * dt * I3
+    return Q
 
 
 def default_measurement_noise(pos_std=0.5, att_std=0.05):
     """
     Diagonal measurement noise R (6×6).
     pos_std [m] — position measurement uncertainty
-    att_std [rad] — attitude (Rodrigues) measurement uncertainty
+    att_std [rad] — attitude measurement uncertainty (tangent space)
     """
     diag = np.concatenate([
         np.full(3, pos_std**2),
         np.full(3, att_std**2),
     ])
     return np.diag(diag)
+
+
+def range_scaled_measurement_noise(range_m,
+                                   pos_std_ref=0.25, att_std_ref=0.045,
+                                   range_ref=20.0,
+                                   range_min=1.0):
+    """
+    Measurement noise for a monocular pose fix, scaled with range.
+
+    A pinhole pose solution degrades quadratically with depth: a fixed pixel
+    error subtends a physical error proportional to z, and the depth component
+    of the solution degrades faster still.  Measured on this pipeline at
+    1.5 px keypoint noise, position RMSE runs
+
+        5 m -> 0.007 m,  20 m -> 0.096 m,  30 m -> 0.249 m,  80 m -> 1.96 m
+
+    which is very close to (z / z_ref)^2.  A single fixed R is therefore 70x
+    too large at 5 m and 4x too small at 80 m: the filter throws away good
+    close-range fixes and over-trusts poor distant ones.
+
+    Parameters
+    ----------
+    range_m     : current target range [m]
+    pos_std_ref : position 1-sigma at `range_ref` [m]
+    att_std_ref : attitude 1-sigma at `range_ref` [rad]
+    range_ref   : reference range [m]
+    range_min   : floor on the range used for scaling, so R cannot collapse
+                  to zero at contact
+
+    Returns
+    -------
+    R : (6,6) diagonal measurement covariance
+    """
+    z = max(float(range_m), float(range_min))
+    s = (z / float(range_ref)) ** 2
+    pos_std = pos_std_ref * s
+    att_std = att_std_ref * s
+    return np.diag(np.concatenate([
+        np.full(3, pos_std**2),
+        np.full(3, att_std**2),
+    ]))
+
+
+# ── Filter consistency ─────────────────────────────────────────────────────────
+
+def nis_statistics(nis, dof=6, alpha=0.05):
+    """
+    Summarise a NIS (normalised innovation squared) sequence.
+
+    For a consistent filter the NIS of each update is chi-square distributed
+    with `dof` degrees of freedom, so its mean should be `dof`.  The two-sided
+    confidence interval on the SAMPLE MEAN of N draws is
+
+        dof  +/-  z * sqrt(2 * dof / N)
+
+    since Var[chi2_k] = 2k.  A mean above the interval means the filter is
+    over-confident (its covariance is too small for the errors it actually
+    makes); below means it is conservative.
+
+    Parameters
+    ----------
+    nis   : sequence of per-update NIS values
+    dof   : measurement dimension (6 here: 3 position + 3 attitude)
+    alpha : significance level for the interval (default 0.05 -> 95 %)
+
+    Returns
+    -------
+    dict with n, mean, dof, ci_low, ci_high, consistent, tail_fraction
+    """
+    nis = np.asarray([v for v in np.asarray(nis, dtype=float).ravel()
+                      if np.isfinite(v)], dtype=float)
+    n = int(nis.size)
+    if n == 0:
+        return {'n': 0, 'mean': float('nan'), 'dof': dof,
+                'ci_low': float('nan'), 'ci_high': float('nan'),
+                'consistent': False, 'tail_fraction': float('nan')}
+
+    # Normal approximation to the mean of n chi-square draws.
+    z = 1.959963984540054 if abs(alpha - 0.05) < 1e-12 else _norm_ppf(1 - alpha / 2)
+    half = z * np.sqrt(2.0 * dof / n)
+    mean = float(nis.mean())
+
+    try:
+        from scipy.stats import chi2
+        thresh = float(chi2.ppf(0.99, dof))
+    except Exception:                                    # pragma: no cover
+        thresh = {6: 16.811893829770927}.get(dof, float('inf'))
+
+    return {
+        'n'            : n,
+        'mean'         : mean,
+        'dof'          : dof,
+        'ci_low'       : dof - half,
+        'ci_high'      : dof + half,
+        'consistent'   : bool(dof - half <= mean <= dof + half),
+        'tail_fraction': float((nis > thresh).mean()),
+    }
+
+
+def _norm_ppf(p):
+    """Standard normal quantile (Acklam's rational approximation)."""
+    from math import sqrt, log
+    a = [-3.969683028665376e+01, 2.209460984245205e+02, -2.759285104469687e+02,
+         1.383577518672690e+02, -3.066479806614716e+01, 2.506628277459239e+00]
+    b = [-5.447609879822406e+01, 1.615858368580409e+02, -1.556989798598866e+02,
+         6.680131188771972e+01, -1.328068155288572e+01]
+    c = [-7.784894002430293e-03, -3.223964580411365e-01, -2.400758277161838e+00,
+         -2.549732539343734e+00, 4.374664141464968e+00, 2.938163982698783e+00]
+    d = [7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e+00,
+         3.754408661907416e+00]
+    pl, ph = 0.02425, 1 - 0.02425
+    if p < pl:
+        q = sqrt(-2 * log(p))
+        return (((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) / \
+               ((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1)
+    if p > ph:
+        q = sqrt(-2 * log(1 - p))
+        return -(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) / \
+                ((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1)
+    q = p - 0.5
+    r = q * q
+    return (((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r+a[5])*q / \
+           (((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r+1)

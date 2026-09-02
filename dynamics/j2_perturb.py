@@ -158,7 +158,6 @@ class J2PerturbedHCW:
         """
         Full relative EOM: HCW + differential J2 + optional control.
         """
-        from scipy.integrate import solve_ivp as _solve   # just for type hints
         n  = self.n
         xp, yp, zp   = x[0], x[1], x[2]
         xdp, ydp, zdp = x[3], x[4], x[5]

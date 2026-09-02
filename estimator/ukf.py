@@ -43,7 +43,8 @@ class UnscentedKF:
     Q       : (12,12) process noise covariance
     R_noise : (6,6)  measurement noise covariance
     n       : float  orbital mean motion [rad/s]
-    alpha   : float  spread parameter (σ-pts distance, ~1e-3)
+    alpha   : float  sigma-point spread.  Must be O(0.1-1); at 1e-3 with
+                     n=12 the transform degenerates (see __init__).
     beta    : float  distribution parameter (2 = Gaussian)
     kappa   : float  secondary scaling (0 for state estimation)
     gate    : float  Mahalanobis² gate (None = no gating)
@@ -55,7 +56,7 @@ class UnscentedKF:
                  Q       : np.ndarray,
                  R_noise : np.ndarray,
                  n       : float = N_ORBITAL,
-                 alpha   : float = 1e-3,
+                 alpha   : float = 0.5,
                  beta    : float = 2.0,
                  kappa   : float = 0.0,
                  gate    : float = _CHI2_GATE_6):
@@ -69,7 +70,17 @@ class UnscentedKF:
         # Error-state dimension
         self.n_err  = 12
 
-        # Van der Merwe weights
+        # Van der Merwe weights.
+        #
+        # alpha sets the sigma-point spread: lambda = alpha^2 (n + kappa) - n,
+        # and the points sit at sqrt(n + lambda) sigma.  With the textbook
+        # "small alpha" value 1e-3 and n = 12 this gives n + lambda = 1.2e-5,
+        # i.e. a spread of 0.0035 sigma and a centre weight of -1e6: the
+        # unscented transform collapses onto a finite-difference linearisation
+        # with severe cancellation, and the UKF reproduces the EKF to four
+        # decimal places.  An "EKF vs UKF" comparison at alpha = 1e-3 is
+        # comparing a filter with itself.  alpha in [0.1, 1] keeps the points
+        # at O(1) sigma, which is the whole point of the method.
         lam         = alpha**2 * (self.n_err + kappa) - self.n_err
         self._lam   = lam
         n_          = self.n_err
@@ -270,7 +281,7 @@ def make_ukf(x0, dt,
              pos_proc_std=0.05, vel_proc_std=0.005,
              att_proc_std=1e-4, rate_proc_std=1e-5,
              meas_pos_std=0.5, meas_att_std=0.05,
-             n=N_ORBITAL, alpha=1e-3, beta=2.0, kappa=0.0):
+             n=N_ORBITAL, alpha=0.5, beta=2.0, kappa=0.0):
     """Build a UnscentedKF with sensible diagonal defaults."""
     P0 = np.diag(np.concatenate([
         np.full(3, pos0_std**2),

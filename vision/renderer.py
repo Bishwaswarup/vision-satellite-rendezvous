@@ -298,8 +298,12 @@ def _fill_polygon(canvas, zbuf, pts, color, depth):
             x1, y1 = pts[(i + 1) % n]
             if (y0 <= y < y1) or (y1 <= y < y0):
                 if y1 != y0:
-                    x = x0 + (y - y0) * (x1 - x0) / (y1 - y0)
-                    xs.append(x)
+                    # float division: the integer form overflows once a vertex
+                    # near the camera plane projects to ~1e9 px
+                    x = float(x0) + (y - float(y0)) * \
+                        (float(x1) - float(x0)) / (float(y1) - float(y0))
+                    if np.isfinite(x):
+                        xs.append(x)
         if len(xs) < 2:
             continue
         x_left  = max(0,     int(np.floor(min(xs))))
@@ -334,8 +338,58 @@ def _fill_polygon_depth(zbuf, pts, depth, W, H):
         zbuf[y, x_left:x_right+1][mask] = depth
 
 
+def _clip_segment(u0, v0, u1, v1, W, H, margin=4):
+    """
+    Cohen-Sutherland clip of a segment to a slightly enlarged image rectangle.
+
+    A vertex close to the camera plane projects to a coordinate of order
+    f * X / z, which grows without bound as z -> 0.  Rasterising such a
+    segment costs O(|u|) Python iterations — at z = 1e-5 m that is ~1e8 steps,
+    i.e. an apparent hang — and at z = 1e-9 the coordinate overflows int32
+    outright.  Clipping first bounds the work by the image size.
+
+    Returns (u0, v0, u1, v1) clipped, or None if the segment misses entirely.
+    """
+    xmin, ymin = -margin, -margin
+    xmax, ymax = W - 1 + margin, H - 1 + margin
+
+    def code(x, y):
+        c = 0
+        if x < xmin: c |= 1
+        elif x > xmax: c |= 2
+        if y < ymin: c |= 4
+        elif y > ymax: c |= 8
+        return c
+
+    x0, y0, x1, y1 = float(u0), float(v0), float(u1), float(v1)
+    if not all(np.isfinite(v) for v in (x0, y0, x1, y1)):
+        return None
+
+    c0, c1 = code(x0, y0), code(x1, y1)
+    for _ in range(8):                     # converges in <= 4; guard anyway
+        if not (c0 | c1):
+            return int(round(x0)), int(round(y0)), int(round(x1)), int(round(y1))
+        if c0 & c1:
+            return None                    # wholly outside
+        c = c0 or c1
+        if c & 8:      x, y = x0 + (x1-x0)*(ymax-y0)/(y1-y0), ymax
+        elif c & 4:    x, y = x0 + (x1-x0)*(ymin-y0)/(y1-y0), ymin
+        elif c & 2:    x, y = xmax, y0 + (y1-y0)*(xmax-x0)/(x1-x0)
+        else:          x, y = xmin, y0 + (y1-y0)*(xmin-x0)/(x1-x0)
+        if c == c0:
+            x0, y0, c0 = x, y, code(x, y)
+        else:
+            x1, y1, c1 = x, y, code(x, y)
+    return None
+
+
 def _draw_line(canvas, u0, v0, u1, v1, color, W, H):
-    """Bresenham line on canvas (clips to image bounds)."""
+    """Bresenham line on canvas, clipped to the image bounds first."""
+    seg = _clip_segment(u0, v0, u1, v1, W, H)
+    if seg is None:
+        return
+    u0, v0, u1, v1 = seg
+
     du, dv = abs(u1 - u0), abs(v1 - v0)
     su = 1 if u1 > u0 else -1
     sv = 1 if v1 > v0 else -1
@@ -343,7 +397,8 @@ def _draw_line(canvas, u0, v0, u1, v1, color, W, H):
     steps = max(du, dv) + 1
     if steps < 1:
         return
-    for _ in range(int(steps)):
+    steps = min(int(steps), 4 * (W + H))   # hard bound on rasterisation cost
+    for _ in range(steps):
         if 0 <= v < H and 0 <= u < W:
             canvas[v, u] = color
         if du > dv:

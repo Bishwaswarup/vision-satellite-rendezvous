@@ -31,12 +31,13 @@ from vision.body_model import ariane_model
 from vision.renderer import DebrisRenderer, RendererConfig
 from estimator.state import quat_to_dcm
 
-# ── Colour palette ────────────────────────────────────────────────────────────
-BLUE   = '#4FC3F7'
-AMBER  = '#FFB74D'
-GREEN  = '#81C784'
-RED    = '#EF9A9A'
-GREY   = '#78909C'
+from viz import (apply_style, series_kw, style_ax, save_fig,
+                 add_panel_label, GREY, IMAGE_CMAP)
+
+# Print-safe monochrome: series are separated by grey level, line style and
+# marker, never by hue, so the animation and its still frames survive a
+# greyscale print and read correctly to colour-blind viewers.
+apply_style()
 
 
 # ── Single-frame renderer ─────────────────────────────────────────────────────
@@ -70,7 +71,7 @@ def render_frame(result, k: int, axes=None, figsize=(14, 5)):
     rend  = DebrisRenderer(cam)
 
     if axes is None:
-        fig = plt.figure(figsize=figsize, facecolor='#1a1a2e')
+        fig = plt.figure(figsize=figsize, facecolor=GREY['page'])
         axes = [
             fig.add_subplot(1, 3, 1),
             fig.add_subplot(1, 3, 2),
@@ -88,40 +89,52 @@ def render_frame(result, k: int, axes=None, figsize=(14, 5)):
 
     img, _ = rend.render(model, R_body, r_k)
     ax_img.clear()
-    ax_img.imshow(img, cmap='Blues_r', vmin=0, vmax=1)
-    ax_img.set_title(f'Camera view  k={k}', color='white', fontsize=9)
+    # The renderer returns an RGB canvas, and imshow ignores `cmap` for 3-D
+    # input, so fold it to luminance first (Rec. 709) to keep the figure
+    # genuinely monochrome rather than merely looking that way.
+    img = np.asarray(img, dtype=float)
+    if img.ndim == 3:
+        img = (0.2126 * img[..., 0] + 0.7152 * img[..., 1]
+               + 0.0722 * img[..., 2])
+    ax_img.imshow(img, cmap=IMAGE_CMAP, vmin=0.0, vmax=1.0)
+    ax_img.set_title(f'Camera view   step {k}')
     ax_img.axis('off')
+
+    n_steps = max(len(result.r_true) - 1, 1)
+    rng_k = float(np.linalg.norm(r_k))
 
     # ── Panel 2: X-Y trajectory ───────────────────────────────────────────────
     ax_xy.clear()
-    ax_xy.set_facecolor('#1a1a2e')
+    ax_xy.set_facecolor(GREY['panel'])
     ax_xy.plot(result.r_true[:k+1, 0], result.r_true[:k+1, 1],
-               color=BLUE, lw=1.5, label='True')
-    ax_xy.plot(result.r_est[:k+1, 0],  result.r_est[:k+1, 1],
-               color=AMBER, lw=1.2, ls='--', label='EKF est.')
-    ax_xy.scatter(r_k[0], r_k[1], color=GREEN, s=50, zorder=5)
-    ax_xy.scatter(0, 0, color=RED, s=80, marker='*', zorder=5, label='Target')
-    ax_xy.set_xlabel('X radial [m]', color='white', fontsize=8)
-    ax_xy.set_ylabel('Y along-track [m]', color='white', fontsize=8)
-    ax_xy.set_title('LVLH trajectory', color='white', fontsize=9)
-    ax_xy.legend(fontsize=7); ax_xy.grid(alpha=0.2)
-    ax_xy.tick_params(colors='white', labelsize=7)
+               label='True', **series_kw(0))
+    ax_xy.plot(result.r_est[:k+1, 0], result.r_est[:k+1, 1],
+               label='Estimate', **series_kw(1))
+    # Current position: an open marker reads clearly on any grey.
+    ax_xy.plot(r_k[0], r_k[1], marker='o', markersize=7,
+               markerfacecolor=GREY['page'], markeredgecolor=GREY['ink'],
+               markeredgewidth=1.4, linestyle='none', zorder=5)
+    # Target at the origin.
+    ax_xy.plot(0, 0, marker='*', markersize=13, color=GREY['ink'],
+               linestyle='none', zorder=5, label='Target')
+    style_ax(ax_xy, xlabel='$x$  radial [m]', ylabel='$y$  along-track [m]',
+             title='LVLH trajectory', legend=True, legend_loc='best')
 
-    # ── Panel 3: range + position error ──────────────────────────────────────
+    # ── Panel 3: range + estimation error ─────────────────────────────────────
     ax_err.clear()
-    ax_err.set_facecolor('#1a1a2e')
+    ax_err.set_facecolor(GREY['panel'])
     t = np.arange(k + 1)
-    rng  = np.linalg.norm(result.r_true[:k+1], axis=1)
+    rng = np.linalg.norm(result.r_true[:k+1], axis=1)
     perr = result.pos_error[:k+1]
-    ax_err.plot(t, rng,  color=BLUE,  lw=1.5, label='Range [m]')
-    ax_err.plot(t, perr, color=AMBER, lw=1.5, ls='--', label='Est. error [m]')
-    ax_err.set_xlabel('Step', color='white', fontsize=8)
-    ax_err.set_ylabel('Distance [m]', color='white', fontsize=8)
-    ax_err.set_title('Range & estimation error', color='white', fontsize=9)
-    ax_err.legend(fontsize=7); ax_err.grid(alpha=0.2)
-    ax_err.tick_params(colors='white', labelsize=7)
+    ax_err.plot(t, rng, label='Range', **series_kw(0))
+    ax_err.plot(t, perr, label='Estimation error', **series_kw(1))
+    ax_err.set_xlim(0, n_steps)
+    style_ax(ax_err, xlabel='Step', ylabel='Distance [m]',
+             title='Range and estimation error', legend=True,
+             legend_loc='upper right')
 
-    fig.patch.set_facecolor('#1a1a2e')
+    fig.suptitle(f'Range {rng_k:6.2f} m', y=1.0, fontsize=10)
+    fig.patch.set_facecolor(GREY['page'])
     plt.tight_layout()
     return fig
 
@@ -231,72 +244,86 @@ class VideoExporter:
         T   = res.n_steps_run + 1
         t   = np.arange(T)
 
-        fig, axes = plt.subplots(2, 3, figsize=(15, 8))
-        fig.patch.set_facecolor('#1a1a2e')
-        plt.style.use('dark_background')
+        fig, axes = plt.subplots(2, 3, figsize=(14, 7.5))
+        fig.patch.set_facecolor(GREY['page'])
 
         # ── (0,0) X-Y trajectory ─────────────────────────────────────────
         ax = axes[0, 0]
         ax.plot(res.r_true[:T, 0], res.r_true[:T, 1],
-                color=BLUE, lw=2, label='True')
-        ax.plot(res.r_est[:T, 0],  res.r_est[:T, 1],
-                color=AMBER, lw=1.5, ls='--', label='EKF est.')
-        ax.scatter(0, 0, color=RED, s=100, marker='*', label='Target')
-        ax.scatter(*res.r_true[0, :2], color=GREEN, s=80, label='Start')
-        ax.set_xlabel('X radial [m]'); ax.set_ylabel('Y along-track [m]')
-        ax.set_title('LVLH Trajectory (X-Y)', color='white')
-        ax.legend(fontsize=8); ax.grid(alpha=0.2)
+                label='True', **series_kw(0))
+        ax.plot(res.r_est[:T, 0], res.r_est[:T, 1],
+                label='Estimate', **series_kw(1))
+        ax.plot(0, 0, marker='*', markersize=13, color=GREY['ink'],
+                linestyle='none', label='Target')
+        ax.plot(res.r_true[0, 0], res.r_true[0, 1], marker='o', markersize=7,
+                markerfacecolor=GREY['page'], markeredgecolor=GREY['ink'],
+                markeredgewidth=1.4, linestyle='none', label='Start')
+        style_ax(ax, xlabel='$x$  radial [m]', ylabel='$y$  along-track [m]',
+                 title='LVLH trajectory', legend=True)
+        add_panel_label(ax, '(a)')
 
         # ── (0,1) Range vs time ───────────────────────────────────────────
         ax = axes[0, 1]
         rng = np.linalg.norm(res.r_true[:T], axis=1)
-        ax.plot(t, rng, color=BLUE, lw=2)
+        ax.plot(t, rng, **series_kw(0))
         if res.dock_step:
-            ax.axvline(res.dock_step, color=GREEN, ls='--', lw=1.5,
-                       label=f'Docked @ step {res.dock_step}')
-            ax.legend(fontsize=8)
-        ax.set_xlabel('Step'); ax.set_ylabel('Range [m]')
-        ax.set_title('Range vs time', color='white'); ax.grid(alpha=0.2)
+            ax.axvline(res.dock_step, color=GREY['mid'], linestyle=(0, (4, 2)),
+                       linewidth=1.1, label=f'Docked, step {res.dock_step}')
+            ax.legend()
+        style_ax(ax, xlabel='Step', ylabel='Range [m]', title='Range')
+        add_panel_label(ax, '(b)')
 
         # ── (0,2) Position estimation error ───────────────────────────────
         ax = axes[0, 2]
-        ax.plot(t, res.pos_error[:T], color=AMBER, lw=2)
-        ax.set_xlabel('Step'); ax.set_ylabel('‖r_true − r_est‖  [m]')
-        ax.set_title('Position estimation error', color='white')
-        ax.grid(alpha=0.2)
+        ax.plot(t, res.pos_error[:T], **series_kw(0))
+        style_ax(ax, xlabel='Step',
+                 ylabel=r'$\|\mathbf{r}-\hat{\mathbf{r}}\|$  [m]',
+                 title='Navigation error')
+        add_panel_label(ax, '(c)')
 
-        # ── (1,0) Velocity magnitude ──────────────────────────────────────
+        # ── (1,0) Speed ───────────────────────────────────────────────────
         ax = axes[1, 0]
-        spd = np.linalg.norm(res.v_true[:T], axis=1)
-        ax.plot(t, spd, color=GREEN, lw=2)
-        ax.set_xlabel('Step'); ax.set_ylabel('Speed [m/s]')
-        ax.set_title('Chaser speed', color='white'); ax.grid(alpha=0.2)
+        ax.plot(t, np.linalg.norm(res.v_true[:T], axis=1), **series_kw(0))
+        style_ax(ax, xlabel='Step', ylabel='Speed [m/s]',
+                 title='Closing speed')
+        add_panel_label(ax, '(d)')
 
         # ── (1,1) Thrust profiles ─────────────────────────────────────────
         ax = axes[1, 1]
         t_ctrl = np.arange(res.n_steps_run)
-        labels = ['$u_x$', '$u_y$', '$u_z$']
-        cols   = [BLUE, AMBER, GREEN]
-        for i, (lab, col) in enumerate(zip(labels, cols)):
+        for i, lab in enumerate(('$u_x$', '$u_y$', '$u_z$')):
             ax.plot(t_ctrl, res.controls[:res.n_steps_run, i],
-                    color=col, lw=1.5, label=lab)
-        ax.set_xlabel('Step'); ax.set_ylabel('Thrust [m/s²]')
-        ax.set_title('Control thrust', color='white')
-        ax.legend(fontsize=8); ax.grid(alpha=0.2)
+                    label=lab, **series_kw(i))
+        style_ax(ax, xlabel='Step', ylabel=r'Thrust [m/s$^2$]',
+                 title='Control', legend=True)
+        add_panel_label(ax, '(e)')
 
-        # ── (1,2) EPnP reprojection error ─────────────────────────────────
+        # ── (1,2) Measurement availability and reprojection error ─────────
         ax = axes[1, 2]
         valid = np.isfinite(res.repr_errs[:res.n_steps_run])
-        ax.plot(t_ctrl[valid], res.repr_errs[:res.n_steps_run][valid],
-                color=RED, lw=1.5)
-        ax.set_xlabel('Step'); ax.set_ylabel('Repr. error [px]')
-        ax.set_title('EPnP reprojection error', color='white')
-        ax.grid(alpha=0.2)
+        if valid.any():
+            ax.plot(t_ctrl[valid], res.repr_errs[:res.n_steps_run][valid],
+                    linestyle='none', marker='.', markersize=3,
+                    color=GREY['ink'])
+        # Shade the steps where no pose fix was available.
+        if res.meas_used is not None:
+            gaps = ~res.meas_used[:res.n_steps_run]
+            if gaps.any():
+                ax.fill_between(t_ctrl, 0, 1, where=gaps,
+                                transform=ax.get_xaxis_transform(),
+                                facecolor=GREY['faint'], alpha=0.55,
+                                linewidth=0, label='No pose fix')
+                ax.legend(loc='upper left')
+        style_ax(ax, xlabel='Step', ylabel='Reprojection error [px]',
+                 title='Vision availability')
+        add_panel_label(ax, '(f)')
 
-        fig.suptitle('Phase 7 — Full Closed-Loop Rendezvous Summary',
-                     fontsize=14, color='white')
+        drop = (res.vision_dropout_rate * 100
+                if res.cfg.use_vision else 0.0)
+        fig.suptitle(
+            f'Closed-loop rendezvous — {res.n_steps_run} steps, '
+            f'$\\Delta v$ = {res.delta_v:.2f} m/s, '
+            f'vision dropout {drop:.0f}%', fontsize=11, y=1.01)
         plt.tight_layout()
-        fig.savefig(path, dpi=120, bbox_inches='tight',
-                    facecolor=fig.get_facecolor())
-        plt.close(fig)
+        save_fig(fig, path, dpi=300)
         return path

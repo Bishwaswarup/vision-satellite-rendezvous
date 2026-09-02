@@ -30,6 +30,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 import pytest
+
+K_TEST = np.array([[800., 0., 512.], [0., 800., 512.], [0., 0., 1.]])
 from pose import (
     EPnPSolver, solve_epnp,
     RANSACSolver, solve_pnp_ransac,
@@ -210,9 +212,11 @@ def test_refiner_reduces_error():
     cost_init = errs_init.mean()**2
 
     R_ref, t_ref, cost_ref = refine_pose(R_init, t_init, pts3d, pts2d, K)
-    # Refined cost should be ≤ initial (or at worst similar)
-    assert cost_ref <= cost_init * 2.0, \
-        f"Refiner must not increase cost significantly: {cost_ref:.4f} vs {cost_init:.4f}"
+    # LM only ever commits a step that strictly lowers the cost, so the refined
+    # cost can never exceed the initial one.  (This assertion used to allow a
+    # 2x INCREASE, which let a diverging refiner pass.)
+    assert cost_ref <= cost_init, \
+        f"Refiner increased the cost: {cost_ref:.4f} vs {cost_init:.4f}"
 
 
 # ── Test 12: Refiner output is valid SO(3) ────────────────────────────────────
@@ -274,6 +278,344 @@ def test_epnp_too_few_points():
     pts2d = np.random.rand(3, 2)
     with pytest.raises(ValueError, match="N≥4"):
         solve_epnp(pts3d, pts2d, K)
+
+
+# ── Test 16: coplanar point sets must solve exactly, not return garbage ─────
+def _planar_scene(rng, N, sigma=0.0, depth=25.0):
+    """A coplanar world-point set viewed from `depth` metres."""
+    K = np.array([[800., 0., 512.], [0., 800., 512.], [0., 0., 1.]])
+    P = rng.uniform(-3, 3, (N, 3))
+    P[:, 2] = 0.0                       # exactly coplanar
+    q = rng.normal(size=4); q /= np.linalg.norm(q)
+    w, x, y, z = q
+    R = np.array([[1-2*(y*y+z*z), 2*(x*y-z*w),   2*(x*z+y*w)],
+                  [2*(x*y+z*w),   1-2*(x*x+z*z), 2*(y*z-x*w)],
+                  [2*(x*z-y*w),   2*(y*z+x*w),   1-2*(x*x+y*y)]])
+    t = np.array([0., 0., depth])
+    Pc = (R @ P.T).T + t
+    uv = np.stack([800*Pc[:, 0]/Pc[:, 2] + 512,
+                   800*Pc[:, 1]/Pc[:, 2] + 512], axis=-1)
+    if sigma > 0:
+        uv = uv + rng.normal(0, sigma, uv.shape)
+    return P, uv, K, R, t
+
+
+def _rot_err_deg(A, B):
+    c = (np.trace(A.T @ B) - 1) / 2
+    return float(np.degrees(np.arccos(np.clip(c, -1, 1))))
+
+
+def test_epnp_planar_points_solve_exactly():
+    """
+    Regression guard for the coplanar degeneracy.
+
+    For a coplanar cloud the third singular value is zero, so a 4th control
+    point coincides with the centroid, the barycentric solve becomes singular
+    and three columns of M vanish.  EPnP must switch to THREE control points
+    (Lepetit sec. 3.5) instead of returning a garbage pose as success=True.
+
+    ~3 % of random 6-point samples drawn from the shipped keypoint models are
+    exactly coplanar, so this is on the RANSAC hot path, not an edge case.
+    """
+    solver = EPnPSolver()
+    for N in (6, 10, 20):
+        rng = np.random.default_rng(N)
+        for _ in range(25):
+            P, uv, K, R, t = _planar_scene(rng, N)
+            R_est, t_est, errs, ok = solver.solve(P, uv, K)
+            assert ok, f"planar N={N} reported failure on a clean scene"
+            assert _rot_err_deg(R, R_est) < 1e-3, (
+                f"planar N={N}: {_rot_err_deg(R, R_est):.4f} deg")
+            assert np.linalg.norm(t_est - t) < 1e-6
+            assert errs.mean() < 1e-3
+
+
+def test_epnp_uses_three_control_points_when_planar():
+    """The planar branch must actually be taken, not worked around."""
+    solver = EPnPSolver()
+    rng = np.random.default_rng(0)
+
+    P_planar = rng.uniform(-3, 3, (10, 3)); P_planar[:, 2] = 0.0
+    P_solid  = rng.uniform(-3, 3, (10, 3))
+
+    assert solver._choose_control_points(P_planar).shape == (3, 3)
+    assert solver._choose_control_points(P_solid).shape == (4, 3)
+
+    # And the barycentric coordinates must still be a partition of unity.
+    for P in (P_planar, P_solid):
+        ctrl = solver._choose_control_points(P)
+        alpha = solver._barycentric(P, ctrl)
+        assert np.allclose(alpha.sum(axis=1), 1.0)
+        assert np.allclose(alpha @ ctrl, P, atol=1e-9)
+
+
+# ── Test 17: an implausible fit must be reported as a failure ───────────────
+def test_epnp_rejects_implausible_solution():
+    """
+    `success` must reflect the quality of the fit.  The degenerate cases used
+    to return success=True alongside mean reprojection errors of order 1e9 px,
+    which let RANSAC accept them as hypotheses.
+    """
+    solver = EPnPSolver(max_reprojection_error=8.0)
+    rng = np.random.default_rng(1)
+
+    # 3-D points paired with pixels that correspond to nothing.
+    P = rng.uniform(-3, 3, (10, 3))
+    uv = rng.uniform(0, 1024, (10, 2))
+    R_est, t_est, errs, ok = solver.solve(P, uv, K_TEST)
+    if ok:
+        assert errs.mean() < 8.0, (
+            "solver reported success on a fit it could not achieve")
+
+
+# ── Test 18: agreement with OpenCV on non-planar scenes ─────────────────────
+def test_epnp_matches_opencv_accuracy():
+    """
+    Cross-check against a reference implementation.  Without the Gauss-Newton
+    refinement of the betas (Lepetit sec. 3.3) this implementation was ~4.3x
+    less accurate than cv2; it should now be within a small factor.
+    """
+    cv2 = pytest.importorskip("cv2")
+    solver = EPnPSolver()
+    K = np.array([[800., 0., 512.], [0., 800., 512.], [0., 0., 1.]])
+    rng = np.random.default_rng(4)
+
+    ours, ref = [], []
+    for _ in range(60):
+        P = rng.uniform(-3, 3, (20, 3))
+        q = rng.normal(size=4); q /= np.linalg.norm(q)
+        w, x, y, z = q
+        R = np.array([[1-2*(y*y+z*z), 2*(x*y-z*w),   2*(x*z+y*w)],
+                      [2*(x*y+z*w),   1-2*(x*x+z*z), 2*(y*z-x*w)],
+                      [2*(x*z-y*w),   2*(y*z+x*w),   1-2*(x*x+y*y)]])
+        t = np.array([0., 0., 25.])
+        Pc = (R @ P.T).T + t
+        uv = np.stack([800*Pc[:, 0]/Pc[:, 2] + 512,
+                       800*Pc[:, 1]/Pc[:, 2] + 512], axis=-1)
+        uv = uv + rng.normal(0, 1.0, uv.shape)
+
+        R_est, _, _, ok = solver.solve(P, uv, K)
+        if ok:
+            ours.append(_rot_err_deg(R, R_est))
+        _, rvec, _ = cv2.solvePnP(P, uv, K, None, flags=cv2.SOLVEPNP_EPNP)
+        ref.append(_rot_err_deg(R, cv2.Rodrigues(rvec)[0]))
+
+    ratio = np.median(ours) / np.median(ref)
+    assert ratio < 2.5, (
+        f"median rotation error is {ratio:.2f}x the cv2 EPnP reference "
+        f"({np.median(ours):.4f} deg vs {np.median(ref):.4f} deg)")
+
+
+# ── Test 19: Rodrigues conversion must survive theta = pi ───────────────────
+def test_dcm_to_rodrigues_at_theta_pi():
+    """
+    Regression guard for the theta = pi singularity.
+
+    The naive formula divides by 2 sin(theta).  At theta = pi that is zero and
+    the function returned [0, 0, 0] — a 180 degree error.  This is not an edge
+    case here: `look_at_rotation` produces trace(R) = -1 exactly for the
+    on-axis views used as fixtures throughout the project.
+    """
+    axis = np.array([1.0, 2.0, -0.5])
+    axis /= np.linalg.norm(axis)
+
+    for theta in (1e-9, 1e-4, 1.0, np.pi - 1e-4, np.pi - 1e-7,
+                  np.pi - 1e-12, np.pi):
+        R = _rodrigues_to_dcm(theta * axis)
+        r = _dcm_to_rodrigues(R)
+        R2 = _rodrigues_to_dcm(r)
+        c = (np.trace(R.T @ R2) - 1) / 2
+        err = np.degrees(np.arccos(np.clip(c, -1, 1)))
+        assert err < 1e-4, f"theta={theta}: round trip error {err:.3e} deg"
+        assert np.all(np.isfinite(r))
+        assert np.linalg.norm(r) <= np.pi + 1e-9, (
+            f"theta={theta}: ||r|| = {np.linalg.norm(r)} blew up")
+
+
+def test_dcm_to_rodrigues_on_project_camera_poses():
+    """The repo's own canonical camera poses are exactly theta = pi."""
+    from vision.renderer import look_at_rotation
+
+    for eye in ([0., 0., 30.], [0., 0., -30.], [0., 30., 0.]):
+        R_cw, _ = look_at_rotation(np.array(eye))
+        assert abs(np.trace(R_cw) + 1.0) < 1e-9, "fixture is no longer theta=pi"
+        r = _dcm_to_rodrigues(R_cw)
+        assert np.linalg.norm(r) > 3.0, (
+            f"eye={eye}: returned ||r||={np.linalg.norm(r):.4f}, expected ~pi")
+        c = (np.trace(R_cw.T @ _rodrigues_to_dcm(r)) - 1) / 2
+        assert np.degrees(np.arccos(np.clip(c, -1, 1))) < 1e-4
+
+
+# ── Test 20: refining an exact pose must not damage it ──────────────────────
+def test_refiner_preserves_exact_initialisation():
+    """
+    Seeded with the ground-truth pose the refiner should barely move.  With a
+    global Rodrigues parameterisation it started from r = 0 (a 180 degree error
+    at these poses) and *destroyed* the initialisation: 6.01 deg from perfect.
+    """
+    from vision.renderer import look_at_rotation
+    from vision.body_model import ariane_model
+
+    kp = ariane_model().keypoint_array
+    R_gt, _ = look_at_rotation(np.array([0., 0., 30.]))
+    t_gt = np.array([0., 0., 30.])
+    rng = np.random.default_rng(5)
+
+    errs = []
+    for _ in range(20):
+        Pc = (R_gt @ kp.T).T + t_gt
+        uv = np.stack([800*Pc[:, 0]/Pc[:, 2] + 512,
+                       800*Pc[:, 1]/Pc[:, 2] + 512], axis=-1)
+        uv = uv + rng.normal(0, 1.0, uv.shape)
+        R_ref, t_ref, _ = refine_pose(R_gt, t_gt, kp, uv, K)
+        c = (np.trace(R_gt.T @ R_ref) - 1) / 2
+        errs.append(np.degrees(np.arccos(np.clip(c, -1, 1))))
+
+    assert np.median(errs) < 1.5, (
+        f"refiner moved {np.median(errs):.4f} deg away from an exact "
+        f"initialisation at a theta=pi pose")
+
+
+# ── Test 21: the refiner must fail visibly rather than diverge ──────────────
+def test_refiner_does_not_diverge():
+    """
+    A residual that clamps Z while the Jacobian uses the raw Z lets LM accept
+    steps that lower a fictitious cost; translation then ran away to ~1e8 m
+    while the reported cost stayed a plausible 4450 px^2.  Any pose that puts
+    points behind the camera must be rejected outright.
+    """
+    from vision.body_model import ariane_model
+    from pose.refine import GaussNewtonRefiner
+
+    kp = ariane_model().keypoint_array
+    rng = np.random.default_rng(1)
+    q = rng.normal(size=4); q /= np.linalg.norm(q)
+    w, x, y, z = q
+    R_gt = np.array([[1-2*(y*y+z*z), 2*(x*y-z*w),   2*(x*z+y*w)],
+                     [2*(x*y+z*w),   1-2*(x*x+z*z), 2*(y*z-x*w)],
+                     [2*(x*z-y*w),   2*(y*z+x*w),   1-2*(x*x+y*y)]])
+    t_gt = np.array([0., 0., 25.])
+    Pc = (R_gt @ kp.T).T + t_gt
+    uv = np.stack([800*Pc[:, 0]/Pc[:, 2] + 512,
+                   800*Pc[:, 1]/Pc[:, 2] + 512], axis=-1)
+
+    refiner = GaussNewtonRefiner()
+    for tz in (1.0, 0.0, -5.0, -25.0):
+        R_ref, t_ref, cost, info = refiner.refine(
+            R_gt, np.array([0., 0., tz]), kp, uv, K, return_info=True)
+        assert np.linalg.norm(t_ref) < 1e3, (
+            f"t_z={tz}: translation ran away to {np.linalg.norm(t_ref):.3e} m")
+        assert not info['success'], (
+            f"t_z={tz}: reported success on a pose behind the camera")
+
+    # A merely poor — but valid — initialisation must still converge.
+    R_ref, t_ref, cost, info = refiner.refine(
+        R_gt, np.array([0., 0., 20.]), kp, uv, K, return_info=True)
+    assert info['success'] and np.linalg.norm(t_ref - t_gt) < 1e-3
+
+
+# ── Test 22: manifold Jacobian vs finite differences ────────────────────────
+def test_refiner_jacobian_matches_finite_differences():
+    """The analytic Jacobian must match the residual it claims to differentiate."""
+    from pose.refine import GaussNewtonRefiner
+    from vision.renderer import look_at_rotation
+
+    rng = np.random.default_rng(0)
+    P = rng.uniform(-3, 3, (12, 3))
+    R, _ = look_at_rotation(np.array([0., 0., 30.]))
+    t = np.array([0.3, -0.2, 30.])
+    Pc = (R @ P.T).T + t
+    uv = np.stack([800*Pc[:, 0]/Pc[:, 2] + 512,
+                   800*Pc[:, 1]/Pc[:, 2] + 512], axis=-1)
+    uv = uv + rng.normal(0, 1.0, uv.shape)
+    wts = np.ones(len(P))
+
+    J, _ = GaussNewtonRefiner._jacobian_and_residual(
+        R, t, P, uv, 800., 800., 512., 512., wts)
+
+    def resid(delta):
+        Rn = _rodrigues_to_dcm(delta[:3]) @ R
+        tn = t + delta[3:]
+        Pc = (Rn @ P.T).T + tn
+        r = np.empty(2 * len(P))
+        r[0::2] = 800*Pc[:, 0]/Pc[:, 2] + 512 - uv[:, 0]
+        r[1::2] = 800*Pc[:, 1]/Pc[:, 2] + 512 - uv[:, 1]
+        return r
+
+    h = 1e-7
+    J_fd = np.zeros_like(J)
+    for k in range(6):
+        d = np.zeros(6); d[k] = h
+        J_fd[:, k] = (resid(d) - resid(-d)) / (2 * h)
+
+    rel = np.abs(J - J_fd).max() / np.abs(J_fd).max()
+    assert rel < 1e-6, f"analytic Jacobian differs from FD by {rel:.3e} relative"
+
+
+# ── Test 23: parity with the OpenCV LM refiner ──────────────────────────────
+def test_refiner_matches_opencv_lm():
+    """Both should converge to the same local optimum."""
+    cv2 = pytest.importorskip("cv2")
+    from vision.body_model import ariane_model
+    from vision.renderer import look_at_rotation
+
+    kp = ariane_model().keypoint_array
+    R_gt, _ = look_at_rotation(np.array([0., 0., 30.]))
+    t_gt = np.array([0., 0., 30.])
+    rng = np.random.default_rng(5)
+
+    ours, ref = [], []
+    for _ in range(20):
+        Pc = (R_gt @ kp.T).T + t_gt
+        uv = np.stack([800*Pc[:, 0]/Pc[:, 2] + 512,
+                       800*Pc[:, 1]/Pc[:, 2] + 512], axis=-1)
+        uv = uv + rng.normal(0, 1.0, uv.shape)
+
+        R_o, t_o, _ = refine_pose(R_gt, t_gt, kp, uv, K)
+        rvec, _ = cv2.Rodrigues(R_gt)
+        rv, tv = cv2.solvePnPRefineLM(kp, uv, K, None,
+                                      rvec.copy(), t_gt.reshape(3, 1).copy())
+        R_c = cv2.Rodrigues(rv)[0]
+
+        c = (np.trace(R_c.T @ R_o) - 1) / 2
+        ours.append(np.degrees(np.arccos(np.clip(c, -1, 1))))
+        ref.append(np.linalg.norm(t_o - tv.ravel()))
+
+    assert np.median(ours) < 0.05, (
+        f"rotation differs from cv2 LM by {np.median(ours):.4f} deg")
+    assert np.median(ref) < 1e-3
+
+
+# ── Test 24: RANSAC adaptive termination must actually terminate ────────────
+def test_ransac_adaptive_termination():
+    """
+    `for it in range(max_iter)` materialises the range once, so reassigning
+    max_iter inside the loop did nothing: every call ran the full budget and
+    meta['n_iters'] was always exactly max_iter, making it useless as a cost
+    metric and costing 10-100x the necessary runtime.
+    """
+    from pose.ransac import solve_pnp_ransac
+
+    rng = np.random.default_rng(0)
+    P = rng.uniform(-3, 3, (40, 3))
+    t = np.array([0., 0., 25.])
+    Pc = P + t
+    uv = np.stack([800*Pc[:, 0]/Pc[:, 2] + 512,
+                   800*Pc[:, 1]/Pc[:, 2] + 512], axis=-1)
+    uv = uv + rng.normal(0, 0.5, uv.shape)
+
+    n_iters = []
+    for max_iter in (50, 200, 1000):
+        _, _, _, meta = solve_pnp_ransac(P, uv, K, threshold_px=3.0,
+                                         max_iter=max_iter, seed=1)
+        assert meta['success']
+        assert meta['n_iters'] <= max_iter
+        n_iters.append(meta['n_iters'])
+
+    # On clean data a handful of samples suffices; the count must not simply
+    # track the budget.
+    assert max(n_iters) < 50, (
+        f"n_iters {n_iters} scales with max_iter — adaptive stopping is dead")
 
 
 if __name__ == '__main__':

@@ -195,7 +195,7 @@ class HCWPropagator:
 
         Parameters
         ----------
-        rho    : float  Half the x-amplitude [m].
+        rho    : float  Radial (x) amplitude [m]; along-track amplitude is 2*rho.
         n      : float  Mean motion [rad/s].
         theta0 : float  Initial phase angle [rad].
 

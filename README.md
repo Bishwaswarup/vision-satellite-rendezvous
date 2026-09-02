@@ -1,203 +1,242 @@
-# Vision-Based Satellite Rendezvous & Debris Tracking Simulator
+# Vision-Based Satellite Rendezvous Simulator
 
-A closed-loop GNC simulation framework for autonomous space debris rendezvous using monocular vision, nonlinear Kalman filtering, and predictive control.
+A closed-loop GNC simulation of autonomous rendezvous with a tumbling, non-cooperative
+target, built from first principles in Python: relative orbital dynamics, torque-free
+attitude propagation, a synthetic monocular camera, PnP pose estimation, multiplicative
+Kalman filtering, and constrained optimal control.
 
----
-
-## Project Structure
-
-```
-vision-satellite-rendezvous/
-├── dynamics/
-│   ├── constants.py       # Physical constants (mu, J2, R_E, LEO defaults)
-│   ├── hcw.py             # HCW propagator — analytical STM + DOP853 numerical
-│   ├── ya_stm.py          # Yamanaka-Ankersen STM for eccentric orbits
-│   ├── j2_perturb.py      # J2 perturbation + chief ECI propagator
-│   └── __init__.py
-├── target/
-│   ├── attitude.py        # Torque-free Euler dynamics, Dzhanibekov effect
-│   ├── quaternion.py      # Quaternion library (mult, DCM, integration)
-│   └── __init__.py
-├── vision/
-│   ├── camera.py          # PinholeCamera, rendezvous_camera(), wide_angle_camera()
-│   ├── body_model.py      # DebrisModel, ariane_model(), cubesat_3u_model()
-│   ├── renderer.py        # CPU wireframe renderer
-│   ├── dataset.py         # DatasetGenerator, DatasetConfig, PoseAnnotation
-│   ├── vispy_renderer.py  # GPU renderer — Blinn-Phong, star field, Earth limb
-│   └── __init__.py
-├── pose/
-│   ├── epnp.py            # EPnP (Lepetit 2009) closed-form solver
-│   ├── ransac.py          # RANSAC outlier rejection
-│   ├── refine.py          # Gauss-Newton / Levenberg-Marquardt refinement
-│   └── __init__.py
-├── estimator/
-│   ├── state.py           # State packing, RK4 propagation, measurement model
-│   ├── ekf.py             # Multiplicative EKF (MEKF)
-│   ├── ukf.py             # Unscented Kalman Filter (Merwe sigma points)
-│   └── __init__.py
-├── controller/
-│   ├── lqr.py             # Infinite-horizon LQR via DARE
-│   ├── mpc.py             # Receding-horizon MPC (SLSQP, approach-cone constraint)
-│   └── __init__.py
-├── simulation/
-│   ├── runner.py          # RendezvousSimulator, SimConfig, SimResult
-│   ├── video.py           # VideoExporter, frames_to_gif()
-│   └── __init__.py
-├── tests/
-│   ├── test_phase1.py     # 15 unit tests — orbital dynamics
-│   ├── test_phase2.py     # 15 unit tests — rigid body attitude
-│   ├── test_phase3.py     # 15 unit tests — synthetic vision
-│   ├── test_phase4.py     # 15 unit tests — pose estimation
-│   ├── test_phase5.py     # 15 unit tests — EKF / UKF
-│   ├── test_phase6.py     # 15 unit tests — LQR / MPC
-│   ├── test_phase7.py     # 15 unit tests — closed-loop integration
-│   └── test_vispy.py      # 24 unit tests — GPU renderer (optional)
-├── notebooks/
-│   ├── phase1_demo.py     # → fig1–fig4
-│   ├── phase2_demo.py     # → fig5–fig9
-│   ├── phase3_demo.py     # → fig10–fig14
-│   ├── phase4_demo.py     # → fig15–fig19
-│   ├── phase5_demo.py     # → fig20–fig24
-│   ├── phase6_demo.py     # → fig25–fig29
-│   ├── phase7_demo.py     # → fig30–fig34 + rendezvous GIF
-│   └── vispy_demo.py      # → fig_vispy_*.png (GPU renderer showcase)
-├── outputs/               # Generated figures and GIF
-├── config/                # YAML config files
-├── requirements.txt
-├── README.md
-└── RUNNER.md              # Terminal quick-reference guide
-```
+**Bishwaswarup Nayak** — Indian Institute of Science, Bengaluru 560012, India
 
 ---
 
-## Phase Roadmap
-
-| Phase | Module | Description | Status |
-|-------|--------|-------------|--------|
-| 1 | Orbital Dynamics Engine | HCW propagator, Yamanaka-Ankersen STM, J2 perturbation | ✅ Complete |
-| 2 | Target Kinematics & Tumbling | Torque-free Euler dynamics, Dzhanibekov effect, quaternion library | ✅ Complete |
-| 3 | Synthetic Vision Pipeline | Pinhole camera, wireframe mesh models, CPU renderer, dataset generator | ✅ Complete |
-| 4 | Pose Estimation (EPnP) | EPnP closed-form solver, RANSAC outlier rejection, GN/LM refinement | ✅ Complete |
-| 5 | State Estimation — EKF & UKF | Multiplicative EKF, Unscented KF, NIS covariance consistency | ✅ Complete |
-| 6 | GNC — LQR & MPC | Discrete LQR via DARE, receding-horizon MPC, approach-cone constraint | ✅ Complete |
-| 7 | Closed-Loop Integration | Full pipeline, Monte Carlo, animated rendezvous GIF | ✅ Complete |
-| GPU | Vispy GPU Renderer | Blinn-Phong shading, star field, Earth limb, HiDPI-aware offscreen render | ✅ Complete |
-
-**Total: 129 / 129 tests passing** (105 core + 24 GPU renderer)
-
----
-
-## Quick Start
+## Quick start
 
 ```bash
 pip install -r requirements.txt
 
-# Run all 105 core tests
-python -m pytest tests/test_phase1.py tests/test_phase2.py tests/test_phase3.py \
-                 tests/test_phase4.py tests/test_phase5.py tests/test_phase6.py \
-                 tests/test_phase7.py -v
+python main.py check        # 10-second smoke test of every subsystem
+python main.py test         # 141 unit tests
+python main.py figures      # experiments A-F  ->  outputs/*.png
+python main.py animate      # closed-loop GIF + summary sheet
+python main.py all          # everything, in order
+```
 
-# Run GPU renderer tests (requires vispy)
-python -m pytest tests/test_vispy.py -v
+Every command takes `--help`. `main.py figures --only D,E` runs a subset;
+`main.py animate --no-vision --full-run` renders the estimator-isolation case.
 
-# Run all 129 tests
-python -m pytest tests/ -v
+All figures are written to `outputs/` in **print-safe monochrome** — series are
+separated by grey level, line style and marker rather than by hue, so they survive a
+greyscale journal printer and read correctly with a colour-vision deficiency. The
+style lives in `viz/style.py`: call `apply_style()` once, then `series_kw(i)` per
+series.
 
-# Generate all validation figures (fig1–fig34 + GIF)
-python notebooks/phase1_demo.py
-python notebooks/phase2_demo.py
-python notebooks/phase3_demo.py
-python notebooks/phase4_demo.py
-python notebooks/phase5_demo.py
-python notebooks/phase6_demo.py
-python notebooks/phase7_demo.py
+---
 
-# Generate GPU renderer showcase figures
-python notebooks/vispy_demo.py
+## What this actually simulates
+
+Being precise about this matters, because it is easy to over-claim.
+
+**The measurement chain is analytic, not photometric.** Each step projects 15 known
+body-frame keypoints of a parametric Ariane 44L upper stage through a pinhole camera,
+applies the visibility gate (in front of the camera, inside the image), adds Gaussian
+pixel noise, and solves for pose with RANSAC + EPnP + Gauss-Newton refinement.
+Correspondences are known by construction. **No image is rendered in the control
+loop**, there is no feature detector, no data association, and no occlusion reasoning.
+
+The renderer in `vision/renderer.py` is real and produces the camera views used in the
+animation and in the dataset generator — it is simply not in the estimation path.
+
+**What is modelled:** Hill-Clohessy-Wiltshire relative translation, torque-free Euler
+attitude with quaternion kinematics, a calibrated pinhole camera with Brown-Conrady
+distortion, keypoint visibility, pixel noise, pose-solver failure, an unmodelled
+disturbance acceleration on the truth, thrust saturation, and an approach corridor.
+
+**What is not:** spacecraft mass or thruster dynamics (control is a commanded
+acceleration), J2 in the relative dynamics (the model exists and is validated, but no
+reported result uses it), sensor radiometry, eclipse, or actuator lag.
+
+---
+
+## Layout
+
+```
+main.py                  single entry point - test / figures / animate / check
+viz/style.py             monochrome figure style shared by every plot
+
+dynamics/
+  constants.py           physical constants (mu, J2, R_E, LEO defaults)
+  hcw.py                 HCW propagator: analytical STM + DOP853 reference
+  j2_perturb.py          J2 acceleration, differential J2, ECI chief propagator
+  ya_stm.py              Yamanaka-Ankersen STM - NOT VALIDATED, see below
+
+target/
+  attitude.py            torque-free Euler dynamics, inertia presets
+  quaternion.py          quaternion algebra (scalar-first, Hamilton, active)
+
+vision/
+  camera.py              pinhole model, distortion and its inverse
+  body_model.py          Ariane 44L and 3U CubeSat wireframe models
+  renderer.py            CPU wireframe/solid renderer with z-buffer
+  dataset.py             labelled synthetic dataset generator
+  vispy_renderer.py      optional GPU renderer (Blinn-Phong, star field)
+
+pose/
+  epnp.py                EPnP (Lepetit 2009), including the planar case
+  ransac.py              RANSAC with adaptive termination and local optimisation
+  refine.py              Levenberg-Marquardt refinement on the SO(3) manifold
+
+estimator/
+  state.py               state packing, RK4, measurement model, NIS statistics
+  ekf.py                 multiplicative EKF
+  ukf.py                 unscented KF (van der Merwe sigma points)
+
+controller/
+  lqr.py                 infinite-horizon LQR via the DARE
+  mpc.py                 receding-horizon MPC with a soft second-order approach cone
+
+simulation/
+  runner.py              closed-loop simulator
+  video.py               animation and summary-sheet export
+
+experiments/             experiment_A ... experiment_F - the paper's figures
+tests/                   141 unit tests
+notebooks/phase7_demo.py Phase-7 walkthrough figures
 ```
 
 ---
 
-## Validation Results
+## Validation
 
-### Core Phases (105 tests)
+Numbers below are reproduced by `python main.py test` and the experiment scripts.
+Where a component has an independent reference implementation, it is checked against
+that rather than against itself.
 
-| Metric | Value | Target |
-|--------|-------|--------|
-| Periodic orbit closure (position) | 2.3 × 10⁻¹³ m | < 1 μm |
-| Periodic orbit closure (velocity) | 1.4 × 10⁻¹⁷ m/s | < 1 nm/s |
-| Analytical vs DOP853 max error | 25 nm | < 0.1 mm |
-| J₂ differential disturbance (100 m offset) | 0.885 μm/s² | — |
-| J₂ trajectory divergence over 5 orbits | 9.4 m | — |
-| EPnP mean reprojection error (noiseless) | < 0.01 px | — |
-| EKF position RMSE convergence | < 0.5 m | — |
-| LQR final range | < 0.01 m | — |
-| LQR total Δv (20 m approach) | ~0.08 m/s | — |
-| Full pipeline docking success | Yes | Yes |
-| Core tests passed | **105 / 105** | 105 / 105 |
+| Component | Check | Result |
+|---|---|---|
+| HCW analytical STM | vs DOP853 (rtol 1e-13), 5 orbits, drifting IC | max error 6e-11 m |
+| HCW STM | det, Phi(0) = I, dPhi/dt = A Phi | 1.000000000000, 0.0, 4e-9 |
+| J2 acceleration | vs grad R by central differences, off-equatorial | 7e-12 m/s^2 |
+| J2 chief propagator | total energy and L_z conserved, 3 orbits | 3.9e-11 |
+| Quaternion library | vs `scipy.spatial.transform`, 200 random | 6.7e-16 |
+| Torque-free attitude | inertial **H** *vector* constant, 600 s | 2.6e-10 |
+| EPnP | vs `cv2.SOLVEPNP_EPNP`, non-planar, sigma = 1 px | within 1.2x |
+| EPnP planar | coplanar point sets, noiseless | 0.0000 deg |
+| LM refinement | vs `cv2.solvePnPRefineLM` | identical to 4 dp |
+| LM Jacobian | vs finite differences | 5e-9 relative |
+| MEKF Jacobian | analytic vs finite differences | 1.4e-8 |
+| **MEKF consistency** | **mean NIS over 3600 updates (n_z = 6)** | **6.044, CI [5.887, 6.113]** |
+| LQR | DARE residual; J(u) = x0' P x0 | 2e-14; exact |
+| MPC | unconstrained MPC vs infinite-horizon LQR | 4.8e-7 |
+| MPC cone | constraint Jacobian vs finite differences | 1e-9 |
 
-### GPU Renderer (24 tests)
+### Closed-loop performance
 
-| Feature | Detail |
-|---------|--------|
-| Shading | Blinn-Phong (ambient 0.18, diffuse 0.82, specular 0.40, shininess 48) |
-| Star field | 2 000 points, reproducible from seed |
-| Earth limb | 3 concentric translucent line strips |
-| HiDPI support | macOS Retina 2× stride subsampling |
-| Backend | osmesa / egl on Linux; auto-detect on macOS (vispy ≥ 0.14) |
-| GPU tests passed | **24 / 24** | 24 / 24 |
+Default configuration: 30 m initial range, 1.5 px keypoint noise, tumbling target,
+0.3 m/s^2 thrust limit, 1 s control interval.
 
----
+| Metric | Value |
+|---|---|
+| Docking | step 42 (range < 1 m, speed < 0.05 m/s) |
+| Delta-v | 2.61 m/s |
+| Peak closing speed | 1.36 m/s |
+| Thrust-saturated steps | 0 |
+| Navigation RMSE | 0.33 m |
+| Vision dropout | 35.7 % of steps |
 
-## Key Equations
+### The dropout result
 
-**HCW relative motion (LVLH frame):**
-```
-x'' - 2n·y' - 3n²x = fx
-y'' + 2n·x'         = fy
-z'' + n²z           = fz
-```
+The most interesting behaviour in the simulator is that **measurement availability,
+not pose accuracy, is what limits the loop.** Pose error degrades gracefully with
+pixel noise; the solver's *failure rate* does not, because it is dominated by
+geometry:
 
-**J₂ perturbing acceleration (ECI):**
-```
-a_J2 = (3μJ₂Re²)/(2r⁵) · [x(5z²/r²-1), y(5z²/r²-1), z(5z²/r²-3)]
-```
+| Range | Mean visible keypoints | Pose-solve failure |
+|---|---|---|
+| > 12 m | 15.0 | 0 % |
+| 6-12 m | 13.1 | 3 % |
+| 3-6 m | 8.4 | 33 % |
+| 1-3 m | 3.6 | 77 % |
+| < 1 m | 1.6 | 99 % |
 
-**Torque-free Euler dynamics:**
-```
-J·ω' = -ω × (J·ω)
-q'   = ½ · q ⊗ [0, ωx, ωy, ωz]ᵀ
-```
-
-**EPnP reprojection:**
-```
-[u, v, 1]ᵀ ~ K · (R·X + t)
-```
-
-**Discrete LQR (DARE):**
-```
-P  = AᵀPA - AᵀPB(BᵀPB + R)⁻¹BᵀPA + Q
-K  = (BᵀPB + R)⁻¹BᵀPA
-u* = -K·x
-```
+The knee sits at 6 m, and an 8 m target fills a 1024 px frame at f L / W =
+800 x 8 / 1024 = **6.25 m**. The measured breakdown matches the closed-form
+prediction. With a 65 degree field of view you cannot see an Ariane upper stage inside
+about 6 m; terminal approach needs a second sensor, a wider lens, or a close-range
+keypoint subset.
 
 ---
 
-## Dependencies
+## Known limitations
 
-| Package | Purpose |
-|---------|---------|
-| numpy | Linear algebra, state vectors |
-| scipy | DOP853 integrator, DARE solver, SLSQP optimizer |
-| matplotlib | All output figures and animated GIF |
-| pytest | 129 unit tests |
-| vispy ≥ 0.14 | GPU renderer (optional) |
+Stated plainly, because a simulator's credibility rests on what it admits.
 
-Install: `pip install -r requirements.txt`
+- **No rendered imagery in the loop** (see above). The pose problem the filter solves
+  is easier than the real one: perfect correspondence, no occlusion, no detector.
+- **`dynamics/ya_stm.py` is not validated.** Its in-plane block does not satisfy the
+  Tschauner-Hempel equations at any eccentricity, and it does not reduce to HCW as
+  e -> 0 (det Phi = 0.73 at e = 0.05, where it must be exactly 1). Nothing imports it
+  and no result depends on it; it is retained with a warning rather than silently
+  deleted. Fix it against a TH reference before claiming eccentric-orbit capability.
+- **RANSAC sees no outliers in the closed loop.** Correspondences are index-aligned,
+  so end-to-end the outlier rejection has nothing to reject. Experiment C exercises it
+  properly with injected outliers.
+- **Truth and filter share the propagator**, differing only by the injected
+  disturbance acceleration (`SimConfig.disturb_accel_std`). There is no structural
+  model error. Set it to 0 to recover the fully idealised case.
+- **A ~0.5 m radial undershoot** past the docking hold point remains. It is a
+  transient, not a limit cycle; removing it wants a glideslope guidance law rather
+  than a re-tuned LQR.
+- **MPC is not in the closed loop** — the runner uses LQR. Experiment E compares the
+  two open-loop, and the comparison is *MPC against a saturated LQR*: with shared
+  weights and the LQR terminal cost an unconstrained MPC reproduces the LQR exactly,
+  so the difference is anti-windup, not prediction.
+- **Timings are on unpinned hardware.** Quote them with a machine description or not
+  at all.
 
 ---
 
-## Author
+## Reproducibility
 
-**Bishwaswarup Nayak**  
-Indian Institute of Science, Bengaluru 560012, India
+| Parameter | Value | Where |
+|---|---|---|
+| Reference orbit | 400 km circular, n = 1.1368e-3 rad/s | `estimator/state.py`, `controller/lqr.py` |
+| Experiment A orbit | 500 km, n = 1.10678e-3 rad/s | `dynamics/constants.py` |
+| Control interval | 1.0 s (closed loop), 10 s (Exp. D) | `SimConfig.dt` |
+| Camera | 1024^2, f = 800 px, c = (512, 512), no distortion | `vision/camera.py` |
+| Target inertia | diag(1176, 6988, 6988) kg m^2, x = symmetry axis | `estimator/state.py` |
+| Keypoint noise | 1.5 px 1-sigma | `SimConfig.pixel_noise_std` |
+| Disturbance | 5e-4 m/s^2 1-sigma per axis | `SimConfig.disturb_accel_std` |
+| Seeds | 42 for A-E; 0...24 and 0...19 for F | experiment scripts |
+
+Note the two reference orbits: Experiment A validates the dynamics at 500 km while
+every other experiment runs at 400 km. Unify them before publication.
+
+Software: numpy >= 1.26, scipy >= 1.12, matplotlib >= 3.8, pytest >= 8.0.
+`vispy` and `PyOpenGL` are optional, used only by the GPU renderer and its tests,
+which skip when vispy is absent. OpenCV is not a runtime dependency; a few tests use
+it as a reference and skip without it.
+
+---
+
+## Testing
+
+```bash
+python main.py test              # all 141
+python main.py test -k epnp      # a subset
+```
+
+The suite is written to be *sensitive*, not merely green. Tests assert against
+independent references (`scipy.spatial.transform`, `cv2`) and against invariants that
+a plausible bug would break — the inertial angular-momentum **vector** rather than its
+norm, det Phi = 1, NIS against its chi-square interval, analytic Jacobians against
+finite differences, and the approach corridor against the achieved trajectory rather
+than the solver's own report. Each regression test was verified by reintroducing the
+defect it guards and confirming that it fails.
+
+---
+
+## License and citation
+
+Research code accompanying work in preparation. If you use it, please cite the
+repository and open an issue describing what you needed — the interfaces are still
+moving.

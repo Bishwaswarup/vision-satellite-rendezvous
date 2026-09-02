@@ -129,6 +129,17 @@ class LQRController:
 
     # ── Control law ───────────────────────────────────────────────────────────
 
+    def reset_delta_v(self) -> float:
+        """
+        Zero the delta-v accumulator and return its previous value.
+
+        `control()` adds to `delta_v` as a side effect, so calling it
+        twice in a step — to log or to plot — double-counts.  Call this
+        between scenarios, or accumulate in the caller instead.
+        """
+        prev, self.delta_v = self.delta_v, 0.0
+        return float(prev)
+
     def control(self, x: np.ndarray,
                 x_ref: np.ndarray = None,
                 saturate: bool = True) -> np.ndarray:
@@ -212,7 +223,11 @@ class LQRController:
         for _ in range(n_steps):
             x_meas = x + rng.normal(0, noise_std, 6) if noise_std > 0 else x
             u      = self.control(x_meas, x_ref)
-            cost_k = float(x @ self.Q @ x + u @ self.R @ u)
+            # Cost must be measured against the REFERENCE, not the origin;
+            # with a non-zero x_ref the old form reported the cost of a
+            # different problem from the one being solved.
+            dx = x - x_ref
+            cost_k = float(dx @ self.Q @ dx + u @ self.R @ u)
             costs.append(cost_k)
             controls.append(u.copy())
             x = self.Phi @ x + self.Gamma @ u

@@ -21,7 +21,7 @@ Mahalanobis gating
 ------------------
   An incoming measurement is rejected if
       (z−h)ᵀ S⁻¹ (z−h) > χ²_gate
-  where χ²_gate ≈ 15.1 for 6 DOF at 99% confidence (chi2.ppf(0.99, 6)).
+  where χ²_gate = 16.812 = chi2.ppf(0.99, 6) for 6 DOF at 99% confidence (chi2.ppf(0.99, 6)).
 
 References
 ----------
@@ -36,7 +36,7 @@ from .state import (
     N_ORBITAL,
     pack_state, unpack_state,
     propagate_rk4, process_jacobian,
-    h_measurement, measurement_jacobian,
+    h_measurement, measurement_jacobian, attitude_residual,
     default_process_noise, default_measurement_noise,
     quat_mult, quat_norm, rotvec_to_quat,
 )
@@ -76,6 +76,9 @@ class MultEKF:
         # Running stats
         self.n_updates  = 0
         self.n_rejected = 0
+        # Normalised innovation squared, one entry per update attempt.  The
+        # repository advertised NIS consistency but computed it nowhere.
+        self.nis_history = []
 
     # ── Public interface ───────────────────────────────────────────────────────
 
@@ -116,14 +119,21 @@ class MultEKF:
         z   = np.asarray(z, dtype=float)
         R_n = R_override if R_override is not None else self.R
 
-        # Predicted measurement and Jacobian
-        z_hat = h_measurement(self.x)
-        H     = measurement_jacobian(self.x)
+        r_hat, _, q_hat, _ = unpack_state(self.x)
+        H = measurement_jacobian(self.x)       # constant [I3 0 0 0; 0 0 I3 0]
 
-        innov = z - z_hat                      # (6,)
-
-        # Wrap rotation-vector innovation to (-π, π)
-        innov[3:] = self._wrap_rotvec(innov[3:])
+        # Innovation.  Position is a plain difference; ATTITUDE is taken
+        # multiplicatively on SO(3):
+        #
+        #     delta_alpha = rotvec( q_meas  (x)  q_hat^-1 )
+        #
+        # Subtracting global rotation vectors (the old z - h(x)) is singular
+        # at theta = pi — two attitudes either side of pi give nearly
+        # antipodal rotation vectors — so the linearised residual there was
+        # meaningless and the attitude covariance came out 28-47 % too small.
+        innov = np.empty(6)
+        innov[:3] = z[:3] - r_hat
+        innov[3:] = attitude_residual(z[3:], q_hat)
 
         # Innovation covariance
         S = H @ self.P @ H.T + R_n            # (6,6)
@@ -138,7 +148,9 @@ class MultEKF:
 
         if self.gate is not None and mahal2 > self.gate:
             self.n_rejected += 1
-            return {'accepted': False, 'mahal': mahal2, 'innov': innov}
+            self.nis_history.append(mahal2)
+            return {'accepted': False, 'mahal': mahal2, 'innov': innov,
+                    'nis': mahal2}
 
         # Kalman gain
         K = self.P @ H.T @ S_inv              # (12,6)
@@ -155,7 +167,9 @@ class MultEKF:
         self._symmetrise()
 
         self.n_updates += 1
-        return {'accepted': True, 'mahal': mahal2, 'innov': innov}
+        self.nis_history.append(mahal2)
+        return {'accepted': True, 'mahal': mahal2, 'innov': innov,
+                'nis': mahal2}
 
     # ── Private helpers ────────────────────────────────────────────────────────
 
@@ -198,6 +212,7 @@ def make_ekf(x0, dt,
              pos0_std=2.0, vel0_std=0.5, att0_std=0.3, rate0_std=0.05,
              pos_proc_std=0.05, vel_proc_std=0.005,
              att_proc_std=1e-4, rate_proc_std=1e-5,
+             accel_proc_std=None, ang_accel_proc_std=None,
              meas_pos_std=0.5, meas_att_std=0.05,
              n=N_ORBITAL):
     """
@@ -219,6 +234,8 @@ def make_ekf(x0, dt,
                               pos_std=pos_proc_std,
                               vel_std=vel_proc_std,
                               att_std=att_proc_std,
-                              rate_std=rate_proc_std)
+                              rate_std=rate_proc_std,
+                              accel_std=accel_proc_std,
+                              ang_accel_std=ang_accel_proc_std)
     R_noise = default_measurement_noise(meas_pos_std, meas_att_std)
     return MultEKF(x0, P0, Q, R_noise, n=n)

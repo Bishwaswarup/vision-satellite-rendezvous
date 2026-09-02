@@ -227,12 +227,15 @@ def attitude_error_deg(q_true: np.ndarray, q_est: np.ndarray) -> float:
 
         θ_err = 2 * arccos(|q_true · q_est|)
     """
-    dot = abs(np.dot(
-        qnormalize(np.asarray(q_true, float)),
-        qnormalize(np.asarray(q_est,  float))
-    ))
-    dot = np.clip(dot, 0.0, 1.0)
-    return float(np.degrees(2 * np.arccos(dot)))
+    # 2*arccos(|q.q|) loses about half the significant digits near dot = 1
+    # and returns exactly 0.0 below ~1 microdegree, which floors any
+    # convergence plot.  Taking the angle of the relative quaternion with
+    # atan2 is exact across the whole range.
+    q1 = qnormalize(np.asarray(q_true, float))
+    q2 = qnormalize(np.asarray(q_est,  float))
+    dq = qmultiply(q1, qconjugate(q2))
+    return float(np.degrees(2.0 * np.arctan2(np.linalg.norm(dq[1:]),
+                                             abs(dq[0]))))
 
 
 # ── Rotation of vectors ───────────────────────────────────────────────────────

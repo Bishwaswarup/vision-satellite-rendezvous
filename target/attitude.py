@@ -12,7 +12,8 @@ Implements:
 State vector:
     x_att = [q0, q1, q2, q3, ω1, ω2, ω3]   shape (7,)
 
-    q = unit quaternion   (body ← inertial rotation)
+    q = unit quaternion   (body -> inertial; v_I = C(q) v_B, matching
+                           quaternion.q_to_dcm and the paper's Eq. III-C)
     ω = angular velocity in body frame  [rad/s]
 
 Equations of motion:
@@ -239,7 +240,7 @@ def ariane_upper_stage() -> RigidBodyAttitude:
         - Dry mass    : ~1200 kg
         - Length      : ~8.0 m
         - Outer radius: ~1.4 m
-    Modelled as a hollow cylinder.
+    Modelled as a SOLID cylinder.
 
     I_axial      = ½ m r²              (spin axis along x)
     I_transverse = m(3r² + L²) / 12   (tumble axes y, z)
@@ -248,7 +249,7 @@ def ariane_upper_stage() -> RigidBodyAttitude:
     r  = 1.4       # m
     L  = 8.0       # m
     I1 = 0.5 * m * r**2                 # ~1176 kg·m²  axial (symmetry)
-    I2 = m * (3 * r**2 + L**2) / 12    # ~7280 kg·m²  transverse
+    I2 = m * (3 * r**2 + L**2) / 12    # 6988 kg·m^2  transverse
     I3 = I2
     return RigidBodyAttitude(np.array([I1, I2, I3]))
 

@@ -176,22 +176,34 @@ def test_lqr_vs_mpc_performance():
 
 # ── Test 13: MPC approach cone constraint ─────────────────────────────────────
 def test_mpc_approach_cone():
-    """After 60 steps the chaser should be inside a 30° cone around the X axis."""
-    x0  = np.array([20., 5., 3., -0.1, 0., 0.])   # offset in Y and Z
-    mpc = make_mpc(N=20, u_max=0.3, cone_half_angle=30.0)
-    sim = mpc.simulate(x0, n_steps=80)
+    """
+    The chaser must approach inside a 30 deg cone about the +x axis.
 
-    # Check final 20 steps after initial transient
-    states = sim['states'][60:]
-    x_pos  = np.abs(states[:, 0])
-    y_pos  = np.abs(states[:, 1])
-    tan30  = np.tan(np.radians(30.0))
+    This test previously checked only |y| against |x|, only over states[60:]
+    (where every coordinate was ~1e-9 m), and tolerated 5 violations with a
+    1.2x margin — so it passed against a corridor that constrained neither the
+    cross-track axis nor the sign of x.  It now checks the real cone,
+    sqrt(y^2 + z^2) <= x tan(theta), over the whole approach.
+    """
+    x0    = np.array([20., 5., 3., -0.1, 0., 0.])   # inside a 30 deg cone
+    x_ref = np.array([2., 0., 0., 0., 0., 0.])      # hold point on the axis
+    mpc   = make_mpc(N=25, u_max=0.5, cone_half_angle=30.0)
 
-    # Allow 20% margin for numerical tolerance of SLSQP
-    violators = np.where(y_pos > x_pos * tan30 * 1.2)[0]
-    # Should have few or no violations in steady state
-    assert len(violators) <= 5, \
-        f"Too many cone violations ({len(violators)}/20) after transient"
+    x = x0.copy()
+    states = [x.copy()]
+    for _ in range(100):
+        u = mpc.control(x, x_ref)
+        x = mpc.Phi @ x + mpc.Gamma @ u
+        states.append(x.copy())
+    states = np.array(states)
+
+    viol = np.array([mpc.cone_violation(r) for r in states[:, :3]])
+    assert np.all(viol <= 1e-6), (
+        f"{int((viol > 1e-6).sum())} corridor violations; worst "
+        f"{viol.max():.4f} m outside the cone")
+    assert np.all(states[:, 0] > 0), "chaser passed behind the target"
+    assert mpc.n_failed == 0
+    assert np.linalg.norm(states[-1, :3] - x_ref[:3]) < 0.01
 
 
 # ── Test 14: EKF-in-the-loop ──────────────────────────────────────────────────
@@ -276,6 +288,159 @@ def test_docking_condition():
         f"LQR never reached docking condition. "
         f"Final ‖r‖={r_norm[-1]:.3f} m, ‖v‖={v_norm[-1]:.3f} m/s"
     )
+
+
+# ── Test 16: the approach corridor must be a CONE, not a wedge ──────────────
+def test_cone_constrains_cross_track():
+    """
+    Regression guard.  The corridor previously constrained only the y row of
+    the predicted state, leaving cross-track z completely free — a 2-D wedge,
+    not a cone.
+    """
+    mpc = make_mpc(N=20, u_max=0.3, cone_half_angle=30.0)
+    e = np.array([20., 5., 3., -0.1, 0., 0.])
+    cone = mpc._cone_spec(e, np.zeros(6))
+    assert cone is not None
+
+    U = np.zeros(mpc.N * mpc.nu)
+    g0 = cone['fun'](U).min()
+
+    # A purely cross-track burn must change the constraint value.
+    U_z = np.zeros_like(U)
+    U_z[2] = 0.3
+    assert abs(cone['fun'](U_z).min() - g0) > 1e-6, \
+        "cross-track thrust does not affect the corridor — it is a wedge"
+
+
+def test_cone_rejects_positions_behind_the_target():
+    """
+    With |x_k| the corridor is mirrored into x < 0 and the chaser satisfies it
+    while sitting *behind* the target.  The signed form must reject that.
+    """
+    mpc = make_mpc(N=10, u_max=0.3, cone_half_angle=30.0)
+    assert mpc.cone_violation(np.array([20., 1., 1.])) < 0      # inside
+    assert mpc.cone_violation(np.array([-20., 1., 1.])) > 0     # behind
+    assert mpc.cone_violation(np.array([0.1, 5., 5.])) > 0      # off-axis
+
+
+def test_cone_jacobian_matches_finite_differences():
+    """The analytic constraint Jacobian must match the constraint it claims."""
+    mpc = make_mpc(N=12, u_max=0.3, cone_half_angle=25.0)
+    e = np.array([18., 4., 2.5, -0.08, 0.01, 0.])
+    cone = mpc._cone_spec(e, np.zeros(6))
+    n = mpc.N * mpc.nu
+
+    rng = np.random.default_rng(0)
+    U = rng.uniform(-0.1, 0.1, n)
+    J = cone['jac'](U)
+
+    h = 1e-7
+    J_fd = np.zeros_like(J)
+    for k in range(n):
+        d = np.zeros(n); d[k] = h
+        J_fd[:, k] = (cone['fun'](U + d) - cone['fun'](U - d)) / (2 * h)
+
+    rel = np.abs(J - J_fd).max() / np.abs(J_fd).max()
+    assert rel < 1e-6, f"cone Jacobian differs from FD by {rel:.3e} relative"
+
+
+def test_cone_is_not_inert():
+    """
+    Turning the corridor on must change the trajectory, and must reduce the
+    corridor violation.  Previously the radius was taken from the free
+    response S_x e, so the constraint did not depend on U at all: the runs
+    with and without the cone were identical.
+    """
+    x0    = np.array([20., 14., 10., -0.05, 0., 0.])
+    x_ref = np.array([2., 0., 0., 0., 0., 0.])
+    theta = 20.0
+
+    def run(cone):
+        mpc = make_mpc(N=25, u_max=0.5, cone_half_angle=cone)
+        x = x0.copy()
+        states = [x.copy()]
+        for _ in range(80):
+            u = mpc.control(x, x_ref)
+            x = mpc.Phi @ x + mpc.Gamma @ u
+            states.append(x.copy())
+        return np.array(states), mpc
+
+    off, _ = run(None)
+    on, mpc_on = run(theta)
+
+    gauge = make_mpc(N=25, u_max=0.5, cone_half_angle=theta)
+    v_off = np.clip([gauge.cone_violation(r) for r in off[:, :3]], 0, None)
+    v_on  = np.clip([gauge.cone_violation(r) for r in on[:, :3]],  0, None)
+
+    assert np.abs(on - off).max() > 1.0, \
+        "enabling the corridor changed nothing — the constraint is inert"
+    assert v_on.sum() < 0.95 * v_off.sum(), \
+        (f"corridor did not reduce the violation: "
+         f"{v_on.sum():.3f} m vs {v_off.sum():.3f} m")
+    assert mpc_on.n_failed == 0
+
+
+def test_cone_is_enforced_on_a_feasible_approach():
+    """
+    On a well-posed approach to a hold point the corridor must actually hold,
+    apart from the opening steps where the chaser starts outside it.
+    """
+    mpc = make_mpc(N=25, u_max=0.5, cone_half_angle=30.0)
+    x = np.array([20., 12., 8., -0.05, 0., 0.])
+    x_ref = np.array([2., 0., 0., 0., 0., 0.])
+
+    states = [x.copy()]
+    for _ in range(120):
+        u = mpc.control(x, x_ref)
+        x = mpc.Phi @ x + mpc.Gamma @ u
+        states.append(x.copy())
+    states = np.array(states)
+
+    viol = np.array([mpc.cone_violation(r) for r in states[:, :3]])
+    # The initial condition is outside the cone; the chaser cannot teleport in.
+    assert np.all(viol[6:] <= 1e-6), \
+        f"{int((viol[6:] > 1e-6).sum())} corridor violations after settling"
+    assert mpc.n_failed == 0
+    assert np.linalg.norm(states[-1, :3] - x_ref[:3]) < 0.01
+
+
+# ── Test 17: an infeasible QP must not silently mean zero thrust ────────────
+def test_mpc_reports_and_recovers_from_infeasibility():
+    """
+    Regression guard for the silent warm-start fallback.
+
+    With a corridor the chaser starts far outside, every SLSQP call used to
+    fail; `U_opt = result.x if result.success else U0` then applied the warm
+    start, which on the first call is zero.  The result was 40/40 failures,
+    exactly zero thrust, delta_v = 0 and pure drift — while `n_solved`
+    reported 40 successful solves.
+    """
+    mpc = make_mpc(N=20, u_max=0.05, cone_half_angle=30.0)
+    x0 = np.array([20., 20., 10., 0., 0., 0.])
+    sim = mpc.simulate(x0, n_steps=40)
+
+    controls = sim['controls']
+    assert not np.all(controls == 0), "controller commanded zero thrust throughout"
+    assert sim['delta_v'] > 0.1, f"delta_v = {sim['delta_v']:.4f}, controller did nothing"
+
+    # The original code drifted 30.00 -> 30.04 m on zero thrust.  Any real
+    # actuation shows up as range that actually changes.
+    r0 = np.linalg.norm(x0[:3])
+    r1 = np.linalg.norm(sim['states'][-1, :3])
+    assert r1 < r0 - 1.0, f"range only went {r0:.2f} -> {r1:.2f} m (drift)"
+
+    # Bookkeeping must be honest: solved counts solves, not calls.
+    assert mpc.n_calls == 40
+    assert (mpc.n_solved + mpc.n_cone_relaxed + mpc.n_failed) == mpc.n_calls
+    assert mpc.last_status in ('ok', 'cone_relaxed', 'lqr_fallback')
+
+
+def test_mpc_never_returns_an_out_of_bounds_input():
+    """Whatever path is taken, the returned input must respect u_max."""
+    for u_max in (0.02, 0.1, 0.5):
+        mpc = make_mpc(N=15, u_max=u_max, cone_half_angle=25.0)
+        sim = mpc.simulate(np.array([30., 25., 15., 0.2, 0., 0.]), n_steps=30)
+        assert np.abs(sim['controls']).max() <= u_max + 1e-9
 
 
 if __name__ == '__main__':

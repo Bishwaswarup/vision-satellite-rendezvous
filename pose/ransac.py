@@ -6,7 +6,7 @@ RANSAC (Random Sample Consensus) wrapper for robust PnP pose estimation.
 Algorithm
 ---------
   Repeat for max_iter iterations:
-    1. Draw a minimal random sample (n_min=4 points)
+    1. Draw a minimal random sample (n_min=6 points)
     2. Fit hypothesis (EPnP on 4 points)
     3. Count inliers: points with reprojection error < threshold [px]
     4. Track best hypothesis (most inliers; tie-break: lower mean error)
@@ -41,7 +41,8 @@ class RANSACSolver:
     max_iter     : int     Maximum RANSAC iterations
     confidence   : float   Desired probability that at least one all-inlier
                            sample is drawn (used for adaptive termination)
-    n_min        : int     Minimum sample size (default 4 for EPnP)
+    n_min        : int     Minimum sample size (default 6; EPnP admits 4 but minimal 4-point samples
+        are frequently degenerate, so 6 is used for hypothesis generation)
     lo_iters     : int     Local optimisation (inlier refit) iterations
     """
 
@@ -108,7 +109,13 @@ class RANSACSolver:
         n_iter_done = 0
         max_iter    = self.max_iter
 
-        for it in range(max_iter):
+        # NOTE: `for it in range(max_iter)` materialises the range ONCE, so
+        # reassigning max_iter inside the loop has no effect — the adaptive
+        # stopping rule below was dead code and every call ran the full
+        # budget.  A while loop re-reads the bound each pass.
+        it = 0
+        while it < max_iter:
+            it += 1
             n_iter_done += 1
 
             # 1. Minimal random sample

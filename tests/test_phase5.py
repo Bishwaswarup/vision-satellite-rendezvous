@@ -324,5 +324,209 @@ def test_predict_only_uncertainty_grows():
         "Predict-only trace must be non-decreasing; some decrease detected"
 
 
+# ── Test 16: the attitude residual must be multiplicative ───────────────────
+def test_attitude_residual_survives_theta_pi():
+    """
+    Regression guard.  The residual used to be a subtraction of GLOBAL
+    rotation vectors, z[3:] - rotvec(q_hat).  That map is singular at
+    theta = pi: two attitudes a hair either side map to nearly antipodal
+    rotation vectors, so a ~0 degree attitude error produced a ~2*pi residual.
+    """
+    from estimator.state import (attitude_residual, quat_to_rotvec,
+                                 rotvec_to_quat, quat_mult, quat_inv)
+
+    axis = np.array([0.0, 0.0, 1.0])
+    rng = np.random.default_rng(0)
+
+    for theta in (0.3, 2.0, np.pi - 1e-3, np.pi, np.pi + 1e-3):
+        q_hat = rotvec_to_quat(theta * axis)
+        for _ in range(50):
+            # A small true error applied multiplicatively
+            da_true = rng.normal(0, 0.02, 3)
+            q_meas = quat_mult(rotvec_to_quat(da_true), q_hat)
+
+            res = attitude_residual(quat_to_rotvec(q_meas), q_hat)
+            assert np.linalg.norm(res - da_true) < 1e-8, (
+                f"theta={theta}: residual {res} != true error {da_true}")
+
+    # And the naive difference must be shown to fail there, so the test is
+    # about the fix rather than about the tolerance.
+    q_hat  = rotvec_to_quat((np.pi - 1e-6) * axis)
+    q_meas = rotvec_to_quat((np.pi + 1e-6) * axis)
+    naive  = quat_to_rotvec(q_meas) - quat_to_rotvec(q_hat)
+    good   = attitude_residual(quat_to_rotvec(q_meas), q_hat)
+    assert np.linalg.norm(naive) > 6.0, "expected the naive residual to blow up"
+    assert np.linalg.norm(good) < 1e-5
+
+
+def test_measurement_jacobian_is_exact():
+    """
+    With a multiplicative residual, H is exactly [I3 0 0 0; 0 0 I3 0] — the
+    attitude residual IS the attitude error state.
+    """
+    from estimator.state import measurement_jacobian, attitude_residual
+    rng = np.random.default_rng(1)
+    q = rng.normal(size=4); q /= np.linalg.norm(q)
+    x = pack_state(np.array([10., -4., 2.]), np.array([0.1, 0., -0.05]),
+                   q, np.array([0.01, 0.02, -0.01]))
+
+    H = measurement_jacobian(x)
+    expect = np.zeros((6, 12))
+    expect[0:3, 0:3] = np.eye(3)
+    expect[3:6, 6:9] = np.eye(3)
+    np.testing.assert_allclose(H, expect, atol=0)
+
+    # Confirm against finite differences of the ACTUAL residual.
+    from estimator.state import (unpack_state, quat_mult, rotvec_to_quat,
+                                 quat_to_rotvec)
+    r0, v0, q0, w0 = unpack_state(x)
+    z = np.concatenate([r0, quat_to_rotvec(q0)])
+
+    def residual(delta):
+        # perturb the ESTIMATE; the error state is (true - estimate)
+        q_hat = quat_mult(rotvec_to_quat(delta[6:9]), q0)
+        out = np.empty(6)
+        out[:3] = z[:3] - (r0 + delta[:3])
+        out[3:] = attitude_residual(z[3:], q_hat)
+        return out
+
+    h = 1e-6
+    H_fd = np.zeros((6, 12))
+    for k in range(12):
+        d = np.zeros(12); d[k] = h
+        H_fd[:, k] = (residual(-d) - residual(d)) / (2 * h)
+    np.testing.assert_allclose(H, H_fd, atol=1e-6)
+
+
+# ── Test 17: range-scaled measurement noise ─────────────────────────────────
+def test_range_scaled_measurement_noise():
+    """
+    A monocular pose fix degrades as z^2, so a fixed R is wrong at both ends:
+    70x too large at 5 m and 4x too small at 80 m on this pipeline.
+    """
+    from estimator.state import range_scaled_measurement_noise as R_of
+
+    R20 = R_of(20.0)
+    assert np.allclose(np.diag(R20)[:3], 0.25 ** 2)      # reference range
+
+    # Quadratic in range.
+    R40 = R_of(40.0)
+    assert np.isclose(np.diag(R40)[0] / np.diag(R20)[0], 4.0 ** 2, rtol=1e-9)
+
+    # Monotone and floored at close range (must not collapse to zero).
+    ranges = [0.0, 0.5, 1.0, 5.0, 20.0, 80.0]
+    sig = [np.sqrt(np.diag(R_of(r))[0]) for r in ranges]
+    assert all(b >= a - 1e-12 for a, b in zip(sig, sig[1:]))
+    assert sig[0] > 0.0
+    assert all(np.all(np.linalg.eigvals(R_of(r)) > 0) for r in ranges)
+
+
+# ── Test 18: the UKF must actually be a UKF ─────────────────────────────────
+def test_ukf_sigma_points_have_usable_spread():
+    """
+    alpha = 1e-3 with n = 12 gives n + lambda = 1.2e-5: the sigma points sit
+    at 0.0035 sigma with a centre weight of -1e6, so the unscented transform
+    degenerates into a finite-difference linearisation and the UKF reproduces
+    the EKF to four decimals.  An EKF-vs-UKF comparison then compares a filter
+    with itself.
+    """
+    x0 = pack_state(np.array([20., 5., 2.]), np.zeros(3),
+                    np.array([0., 0., 0., 1.]), np.array([0., 0., 0.1]))
+    ukf = make_ukf(x0, 10.0)
+
+    n_err = ukf.n_err
+    spread = np.sqrt(abs(n_err + ukf._lam))
+    assert spread > 0.3, (
+        f"sigma-point spread is {spread:.5f} sigma — the unscented transform "
+        f"has collapsed onto a linearisation")
+
+    # Weights must still be a valid van der Merwe set.
+    assert np.isclose(ukf._Wm.sum(), 1.0)
+    assert abs(ukf._Wm[0]) < 1e3, "centre weight is pathologically large"
+
+
+def test_ekf_and_ukf_are_distinguishable():
+    """
+    The two filters should track similarly but must not BE the same filter.
+
+    Position is the wrong place to look: HCW translation is exactly linear, so
+    the EKF and the UKF agree there to machine precision whatever alpha is.
+    The unscented transform can only show itself where the model is nonlinear
+    — the attitude/rate block — and it shows up most clearly in the
+    COVARIANCE.  At alpha = 1e-3 the relative difference in P is ~6 %; with a
+    usable spread it is ~47 %.
+    """
+    rng = np.random.default_rng(3)
+    x_true = pack_state(np.array([50., 20., 10.]), np.array([-0.05, 0., 0.]),
+                        np.array([0., 0., 0., 1.]), np.array([0., 0., 0.15]))
+    x_init = pack_state(np.array([52., 17., 11.5]), np.array([-0.05, 0., 0.]),
+                        np.array([0., 0., 0., 1.]), np.array([0., 0., 0.15]))
+    ekf = make_ekf(x_init, 10.0, pos0_std=4.0)
+    ukf = make_ukf(x_init, 10.0, pos0_std=4.0)
+
+    x = x_true.copy()
+    dP = 0.0
+    for _ in range(120):
+        x = propagate_rk4(x, 10.0)
+        z = _noisy_meas(x, rng)
+        for F in (ekf, ukf):
+            F.predict(10.0)
+            F.update(z)
+        dP = max(dP, float(np.abs(ekf.P - ukf.P).max()
+                           / max(np.abs(ekf.P).max(), 1e-30)))
+
+    assert dP > 0.1, (
+        f"EKF and UKF covariances never differ by more than {dP:.2e} relative "
+        f"— the unscented transform has collapsed onto a linearisation")
+
+    # ...but they must still agree on the answer.
+    r_e = unpack_state(ekf.state)[0]
+    r_u = unpack_state(ukf.state)[0]
+    assert np.linalg.norm(r_e - r_u) < 1.0
+
+
+# ── Test 19: NIS is computed and recorded ───────────────────────────────────
+def test_nis_is_recorded_and_summarised():
+    """The repo advertised NIS consistency but computed NIS nowhere."""
+    from estimator.state import nis_statistics
+
+    rng = np.random.default_rng(7)
+    x_true = pack_state(np.array([30., 10., 5.]), np.zeros(3),
+                        np.array([0., 0., 0., 1.]), np.array([0., 0., 0.1]))
+    ekf = make_ekf(x_true.copy(), 10.0)
+
+    x = x_true.copy()
+    for _ in range(200):
+        x = propagate_rk4(x, 10.0)
+        ekf.predict(10.0)
+        ekf.update(_noisy_meas(x, rng))
+
+    assert len(ekf.nis_history) == 200
+    st = nis_statistics(ekf.nis_history, dof=6)
+    assert st['n'] == 200 and st['dof'] == 6
+    assert st['ci_low'] < 6.0 < st['ci_high']
+    assert 0.0 <= st['tail_fraction'] <= 1.0
+
+
+# ── Test 20: one inertia tensor for one target ──────────────────────────────
+def test_inertia_tensor_is_consistent_with_the_geometry():
+    """
+    `estimator.state.J_ARIANE` drives the target attitude in every reported
+    result, while `target.attitude.ariane_upper_stage()` is only reached by
+    the phase-2 tests.  They used to be different bodies — diag(1800,1800,360)
+    with the symmetry axis on z, against diag(1176,6988,6988) on x.
+    """
+    from estimator.state import J_ARIANE
+    from target.attitude import ariane_upper_stage
+
+    J_ref = np.asarray(ariane_upper_stage().I, dtype=float)
+    np.testing.assert_allclose(np.diag(J_ARIANE), np.diag(J_ref), rtol=1e-9)
+
+    # x must be the symmetry axis, matching vision.body_model's geometry.
+    d = np.diag(J_ARIANE)
+    assert d[0] < d[1] and np.isclose(d[1], d[2]), \
+        f"symmetry axis is not x: {d}"
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v', '--tb=short'])

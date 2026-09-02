@@ -37,13 +37,17 @@ from simulation import (
 OUTDIR = os.path.join(os.path.dirname(__file__), '..', 'outputs')
 os.makedirs(OUTDIR, exist_ok=True)
 
-plt.style.use('dark_background')
-BLUE   = '#4FC3F7'
-AMBER  = '#FFB74D'
-GREEN  = '#81C784'
-RED    = '#EF9A9A'
-PURPLE = '#CE93D8'
-GREY   = '#78909C'
+from viz import apply_style, series_kw, GREY as _G
+
+# Print-safe monochrome (see viz/style.py): series are separated by grey
+# level, line style and marker rather than by hue.
+apply_style()
+BLUE   = _G['ink']      # primary series
+AMBER  = _G['mid']      # secondary series
+GREEN  = _G['dark']     # markers / annotations
+RED    = _G['ink']      # target marker
+PURPLE = _G['light']
+GREY   = _G['light']
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Run the full closed-loop simulation
@@ -99,23 +103,23 @@ if res_full.dock_step:
 print("Generating Fig 30: 3-D LVLH trajectory...")
 
 fig = plt.figure(figsize=(12, 5))
-fig.suptitle('Fig 30 — Full Pipeline: LVLH Trajectory', fontsize=13, color='white')
+fig.suptitle('Fig 30 — Full Pipeline: LVLH Trajectory', fontsize=13)
 
 # 3-D panel
 ax3 = fig.add_subplot(1, 2, 1, projection='3d')
-ax3.set_facecolor('#1a1a2e')
+ax3.set_facecolor(_G['panel'])
 ax3.plot(res_full.r_true[:T, 0], res_full.r_true[:T, 1], res_full.r_true[:T, 2],
          color=BLUE, lw=2, label='True (full pipeline)')
 ax3.plot(res_full.r_est[:T, 0],  res_full.r_est[:T, 1],  res_full.r_est[:T, 2],
-         color=AMBER, lw=1.5, ls='--', label='EKF estimate')
+         color=AMBER, lw=1.5, ls=(0, (5, 2)), label='EKF estimate')
 ax3.plot(res_perf.r_true[:T, 0], res_perf.r_true[:T, 1], res_perf.r_true[:T, 2],
-         color=GREY, lw=1.5, ls=':', label='Perfect state baseline')
+         color=GREY, lw=1.5, ls=(0, (1, 1.4)), label='Perfect state baseline')
 ax3.scatter(*res_full.r_true[0], color=GREEN, s=80, zorder=5, label='Start')
 ax3.scatter(0, 0, 0, color=RED, s=100, marker='*', zorder=5, label='Target')
-ax3.set_xlabel('X radial [m]', color='white', fontsize=8)
-ax3.set_ylabel('Y along-track [m]', color='white', fontsize=8)
-ax3.set_zlabel('Z cross-track [m]', color='white', fontsize=8)
-ax3.set_title('3-D LVLH', color='white')
+ax3.set_xlabel('X radial [m]', fontsize=8)
+ax3.set_ylabel('Y along-track [m]', fontsize=8)
+ax3.set_zlabel('Z cross-track [m]', fontsize=8)
+ax3.set_title('3-D LVLH')
 ax3.legend(fontsize=7)
 
 # X-Y top view
@@ -123,13 +127,13 @@ ax2 = fig.add_subplot(1, 2, 2)
 ax2.plot(res_full.r_true[:T, 0], res_full.r_true[:T, 1],
          color=BLUE, lw=2, label='True (full pipeline)')
 ax2.plot(res_full.r_est[:T, 0],  res_full.r_est[:T, 1],
-         color=AMBER, lw=1.5, ls='--', label='EKF estimate')
+         color=AMBER, lw=1.5, ls=(0, (5, 2)), label='EKF estimate')
 ax2.plot(res_perf.r_true[:T, 0], res_perf.r_true[:T, 1],
-         color=GREY, lw=1.5, ls=':', label='Perfect state')
+         color=GREY, lw=1.5, ls=(0, (1, 1.4)), label='Perfect state')
 ax2.scatter(*res_full.r_true[0, :2], color=GREEN, s=80, zorder=5)
 ax2.scatter(0, 0, color=RED, s=100, marker='*', zorder=5, label='Target')
-ax2.set_xlabel('X radial [m]', color='white'); ax2.set_ylabel('Y along-track [m]', color='white')
-ax2.set_title('Top view (X-Y)', color='white')
+ax2.set_xlabel('X radial [m]'); ax2.set_ylabel('Y along-track [m]')
+ax2.set_title('Top view (X-Y)')
 ax2.legend(fontsize=7); ax2.grid(alpha=0.2)
 
 plt.tight_layout()
@@ -144,16 +148,16 @@ print(f"  -> {fname}")
 print("Generating Fig 31: Range and estimation error...")
 
 fig, axes = plt.subplots(1, 2, figsize=(12, 4))
-fig.suptitle('Fig 31 — Range & Estimation Error vs Time', fontsize=13, color='white')
+fig.suptitle('Fig 31 — Range & Estimation Error vs Time', fontsize=13)
 
 ax = axes[0]
 ax.plot(t, res_full.range_m[:T], color=BLUE,  lw=2, label='Full pipeline range')
-ax.plot(t, res_perf.range_m[:T], color=GREY, lw=1.5, ls=':', label='Perfect state range')
+ax.plot(t, res_perf.range_m[:T], color=GREY, lw=1.5, ls=(0, (1, 1.4)), label='Perfect state range')
 if res_full.dock_step:
-    ax.axvline(res_full.dock_step, color=GREEN, ls='--', lw=1.5,
+    ax.axvline(res_full.dock_step, color=GREEN, ls=(0, (5, 2)), lw=1.5,
                label=f'Docked @ step {res_full.dock_step}')
 ax.set_xlabel('Step'); ax.set_ylabel('Range [m]')
-ax.set_title('Range to target', color='white')
+ax.set_title('Range to target')
 ax.legend(fontsize=8); ax.grid(alpha=0.2)
 
 ax = axes[1]
@@ -163,7 +167,7 @@ ax.fill_between(t,
     res_full.pos_error[:T] + res_full.ekf_cov_pos[:T].mean(axis=1),
     color=AMBER, alpha=0.2, label='±1σ EKF')
 ax.set_xlabel('Step'); ax.set_ylabel('Error [m]')
-ax.set_title('Position estimation error', color='white')
+ax.set_title('Position estimation error')
 ax.legend(fontsize=8); ax.grid(alpha=0.2)
 
 plt.tight_layout()
@@ -178,7 +182,7 @@ print(f"  -> {fname}")
 print("Generating Fig 32: Thrust profiles...")
 
 fig, axes = plt.subplots(1, 2, figsize=(12, 4))
-fig.suptitle('Fig 32 — Control Thrust & Cumulative Δv', fontsize=13, color='white')
+fig.suptitle('Fig 32 — Control Thrust & Cumulative Δv', fontsize=13)
 
 t_ctrl = np.arange(res_full.n_steps_run)
 labels = ['$u_x$ radial', '$u_y$ along-track', '$u_z$ cross-track']
@@ -188,19 +192,19 @@ ax = axes[0]
 for i, (lab, col) in enumerate(zip(labels, cols)):
     ax.plot(t_ctrl, res_full.controls[:res_full.n_steps_run, i],
             color=col, lw=1.5, label=lab)
-ax.axhline( cfg_full.u_max, color=RED, ls='--', lw=1, label=f'±u_max={cfg_full.u_max}')
-ax.axhline(-cfg_full.u_max, color=RED, ls='--', lw=1)
+ax.axhline( cfg_full.u_max, color=RED, ls=(0, (5, 2)), lw=1, label=f'±u_max={cfg_full.u_max}')
+ax.axhline(-cfg_full.u_max, color=RED, ls=(0, (5, 2)), lw=1)
 ax.set_xlabel('Step'); ax.set_ylabel('Thrust [m/s²]')
-ax.set_title('Per-axis thrust commands', color='white')
+ax.set_title('Per-axis thrust commands')
 ax.legend(fontsize=7); ax.grid(alpha=0.2)
 
 ax = axes[1]
 cum_dv_full = np.cumsum(np.linalg.norm(res_full.controls, axis=1)) * cfg_full.dt
 cum_dv_perf = np.cumsum(np.linalg.norm(res_perf.controls, axis=1)) * cfg_perf.dt
 ax.plot(t_ctrl, cum_dv_full[:res_full.n_steps_run], color=BLUE,  lw=2, label='Full pipeline')
-ax.plot(t_ctrl, cum_dv_perf[:res_perf.n_steps_run], color=GREY,  lw=1.5, ls=':', label='Perfect state')
+ax.plot(t_ctrl, cum_dv_perf[:res_perf.n_steps_run], color=GREY,  lw=1.5, ls=(0, (1, 1.4)), label='Perfect state')
 ax.set_xlabel('Step'); ax.set_ylabel('Cumulative Δv [m/s]')
-ax.set_title('Cumulative Δv consumption', color='white')
+ax.set_title('Cumulative Δv consumption')
 ax.legend(fontsize=8); ax.grid(alpha=0.2)
 
 plt.tight_layout()
@@ -215,7 +219,7 @@ print(f"  -> {fname}")
 print("Generating Fig 33: EPnP reprojection error...")
 
 fig, axes = plt.subplots(1, 2, figsize=(12, 4))
-fig.suptitle('Fig 33 — Vision Pipeline: Reprojection Error vs Range', fontsize=13, color='white')
+fig.suptitle('Fig 33 — Vision Pipeline: Reprojection Error vs Range', fontsize=13)
 
 valid = np.isfinite(res_full.repr_errs)
 t_v   = t_ctrl[valid[:res_full.n_steps_run]]
@@ -224,15 +228,15 @@ re_v  = res_full.repr_errs[:res_full.n_steps_run][valid[:res_full.n_steps_run]]
 ax = axes[0]
 ax.plot(t_v, re_v, color=RED, lw=1.5, alpha=0.8)
 ax.set_xlabel('Step'); ax.set_ylabel('Reprojection error [px]')
-ax.set_title('EPnP reprojection error vs time', color='white')
+ax.set_title('EPnP reprojection error vs time')
 ax.grid(alpha=0.2)
 
 ax = axes[1]
 rng_v = res_full.range_m[:res_full.n_steps_run][valid[:res_full.n_steps_run]]
-sc = ax.scatter(rng_v, re_v, c=t_v, cmap='plasma', s=12, alpha=0.7)
+sc = ax.scatter(rng_v, re_v, c=t_v, cmap='gray', s=12, alpha=0.7)
 plt.colorbar(sc, ax=ax, label='Step')
 ax.set_xlabel('Range to target [m]'); ax.set_ylabel('Reprojection error [px]')
-ax.set_title('Reprojection error vs range', color='white')
+ax.set_title('Reprojection error vs range')
 ax.grid(alpha=0.2)
 
 plt.tight_layout()
@@ -247,7 +251,7 @@ print(f"  -> {fname}")
 print("Generating Fig 34: EKF covariance convergence...")
 
 fig, axes = plt.subplots(1, 2, figsize=(12, 4))
-fig.suptitle('Fig 34 — EKF State Estimation Convergence', fontsize=13, color='white')
+fig.suptitle('Fig 34 — EKF State Estimation Convergence', fontsize=13)
 
 ax = axes[0]
 cov_labels = ['σ_x', 'σ_y', 'σ_z']
@@ -255,7 +259,7 @@ cov_cols   = [BLUE, AMBER, GREEN]
 for i, (lab, col) in enumerate(zip(cov_labels, cov_cols)):
     ax.plot(t, res_full.ekf_cov_pos[:T, i], color=col, lw=1.5, label=lab)
 ax.set_xlabel('Step'); ax.set_ylabel('Position std-dev [m]')
-ax.set_title('EKF position covariance (1σ)', color='white')
+ax.set_title('EKF position covariance (1σ)')
 ax.legend(fontsize=8); ax.grid(alpha=0.2)
 
 ax = axes[1]
@@ -266,9 +270,9 @@ win = 10
 if len(perr) > win:
     rolling = np.convolve(perr, np.ones(win)/win, mode='valid')
     ax.semilogy(t[win-1:], np.maximum(rolling, 1e-3), color=RED, lw=2,
-                ls='--', label=f'{win}-step average')
+                ls=(0, (5, 2)), label=f'{win}-step average')
 ax.set_xlabel('Step'); ax.set_ylabel('Error [m]  (log scale)')
-ax.set_title('Estimation error convergence', color='white')
+ax.set_title('Estimation error convergence')
 ax.legend(fontsize=8); ax.grid(alpha=0.2)
 
 plt.tight_layout()

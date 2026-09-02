@@ -159,14 +159,19 @@ class PinholeCamera:
         return self.project(P_cam, apply_distortion=apply_distortion, clip=clip)
 
     # ── Back-projection ───────────────────────────────────────────────────────
-    def backproject(self, uv: np.ndarray, depth: np.ndarray) -> np.ndarray:
+    def backproject(self, uv: np.ndarray, depth: np.ndarray,
+                    undistort: bool = True) -> np.ndarray:
         """
         Back-project pixel coordinates + depth to 3D camera-frame points.
 
         Parameters
         ----------
-        uv    : array (N, 2)   Pixel coordinates (u, v)
-        depth : array (N,)     Depth [m]
+        uv        : array (N, 2)   Pixel coordinates (u, v)
+        depth     : array (N,)     Depth [m]
+        undistort : bool  invert the lens distortion first (default True).
+                    project() applies distortion, so without this the round
+                    trip is not the identity — up to 29 px of error at the
+                    corners of `wide_angle_camera`.
 
         Returns
         -------
@@ -174,9 +179,50 @@ class PinholeCamera:
         """
         uv = np.atleast_2d(np.asarray(uv, dtype=float))
         d  = np.asarray(depth, dtype=float).ravel()
+        if undistort and self.has_distortion:
+            uv = self.undistort(uv)
         x_norm = (uv[:, 0] - self.cx) / self.fx
         y_norm = (uv[:, 1] - self.cy) / self.fy
         return np.stack([x_norm * d, y_norm * d, d], axis=-1)
+
+    # ── Undistortion ──────────────────────────────────────────────────────────
+    @property
+    def has_distortion(self) -> bool:
+        """True if any Brown-Conrady coefficient is non-zero."""
+        return any(abs(c) > 0.0 for c in (self.k1, self.k2, self.p1, self.p2))
+
+    def undistort(self, uv: np.ndarray, iters: int = 12) -> np.ndarray:
+        """
+        Invert the Brown-Conrady distortion: observed pixels -> ideal pixels.
+
+        `distort()` was applied on projection but never inverted anywhere, and
+        no pose solver took distortion coefficients, so anything rendered with
+        a distorting preset was solved with an unmodelled systematic error of
+        up to 29 px at the corners of `wide_angle_camera`.
+
+        The forward model has no closed-form inverse, so this is the standard
+        fixed-point iteration on the normalised coordinates: start from the
+        distorted point and repeatedly subtract the distortion evaluated at
+        the current estimate.  It converges in a few iterations for the
+        moderate coefficients used here.
+        """
+        uv = np.atleast_2d(np.asarray(uv, dtype=float))
+        if not self.has_distortion:
+            return uv.copy()
+
+        xd = (uv[:, 0] - self.cx) / self.fx
+        yd = (uv[:, 1] - self.cy) / self.fy
+        x, y = xd.copy(), yd.copy()
+
+        for _ in range(iters):
+            r2 = x*x + y*y
+            radial = 1.0 + self.k1 * r2 + self.k2 * r2 * r2
+            dx = 2.0 * self.p1 * x * y + self.p2 * (r2 + 2.0 * x * x)
+            dy = self.p1 * (r2 + 2.0 * y * y) + 2.0 * self.p2 * x * y
+            x = (xd - dx) / radial
+            y = (yd - dy) / radial
+
+        return np.stack([x * self.fx + self.cx, y * self.fy + self.cy], axis=-1)
 
     # ── Helpers ───────────────────────────────────────────────────────────────
     @property
@@ -209,7 +255,7 @@ def rendezvous_camera() -> PinholeCamera:
     Specs modelled loosely on ESA LIRIS / ClearSpace inspection imager:
       - Resolution : 1024 × 1024 pixels
       - Focal length: ~800 px  (~f = 12 mm on 1/2" sensor → ~800 px at 15 µm pitch)
-      - FoV        : ~35° × 35°
+      - FoV        : 65.2 deg x 65.2 deg = 2 atan(W / 2 fx), W=1024, fx=800
       - No distortion (corrected optics)
     """
     return PinholeCamera(

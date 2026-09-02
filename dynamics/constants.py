@@ -14,7 +14,7 @@ MU_EARTH    = 3.986004418e14     # [m^3/s^2]  Earth gravitational parameter
 MU_SUN      = 1.327124400e20     # [m^3/s^2]  Sun gravitational parameter (for later phases)
 
 # ─── Earth Physical Properties ───────────────────────────────────────────────
-R_EARTH     = 6.3781366e6        # [m]         Earth mean equatorial radius
+R_EARTH     = 6.3781366e6  # IERS mean equatorial radius (WGS-84 gives 6378137.0 m; the 0.4 m difference is 1.3e-7 relative in a_J2)        # [m]         Earth mean equatorial radius
 J2          = 1.08262668e-3      # [-]         Earth oblateness coefficient (EGM96)
 J3          = -2.53265648e-6     # [-]         3rd zonal harmonic (for high-fidelity, Phase 7)
 OMEGA_EARTH = 7.2921150e-5       # [rad/s]     Earth sidereal rotation rate

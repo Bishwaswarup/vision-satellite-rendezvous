@@ -22,6 +22,30 @@ Usage
     xf  = Phi @ x0
 """
 
+# ─────────────────────────────────────────────────────────────────────────────
+# STATUS: NOT VALIDATED — DO NOT USE FOR PUBLISHED RESULTS
+#
+# The in-plane block of this state-transition matrix does not satisfy the
+# Tschauner-Hempel equations for any eccentricity, including e = 0, where it
+# fails to reduce to the Hill-Clohessy-Wiltshire STM.  Independent checks:
+#
+#     det(Phi)  must be exactly 1 (the system has zero trace); measured
+#               0.9367 at e = 0.01, 0.7257 at e = 0.05, 0.1781 at e = 0.3
+#     e = 0, quarter orbit:  Phi[0,0] = 6.1e-17, should be 4.0
+#                            Phi[0,4] = 0.0,     should be 1855.3
+#     one orbit at e = 0.05: y_f = -564.2 m against a true -1964.1 m
+#
+# Two further defects sit in the same file: `true_anomaly_from_time` wraps the
+# true anomaly to [0, 2*pi) and so silently drops whole revolutions, and
+# `_J_integral`'s np.isclose guard uses a RELATIVE tolerance and therefore
+# returns 0.0 for genuinely non-zero arcs at large f.
+#
+# Nothing in the manuscript depends on this module, and no experiment imports
+# it.  It is retained only so the history is visible.  Fix it against a
+# Tschauner-Hempel reference before citing eccentric-orbit capability.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
 import numpy as np
 from scipy.integrate import quad
 from .constants import MU_EARTH
