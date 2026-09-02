@@ -9,13 +9,52 @@ Kalman filtering, and constrained optimal control.
 
 ---
 
+## Setup
+
+```bash
+git clone <this repo>
+cd vision-satellite-rendezvous
+bash setup.sh                    # creates .venv/ and installs everything
+source .venv/bin/activate
+python main.py check
+```
+
+`setup.sh` picks a Python 3.10+ interpreter, creates `.venv/` **inside the
+repository**, installs the pinned requirements, and then verifies the install by
+importing each package. Options: `--gpu` adds the optional vispy renderer, `--dev`
+adds OpenCV (used only as a reference by a few tests), `--recreate` starts clean.
+
+### PyCharm
+
+PyCharm looks for a virtual environment in the **project root**. If it reports no
+interpreter:
+
+1. **Settings → Project: vision-satellite-rendezvous → Python Interpreter**
+2. Gear icon → **Add Local Interpreter… → Existing**
+3. Interpreter: `<repo>/.venv/bin/python`
+
+Run `bash setup.sh` first — PyCharm cannot use an environment that does not exist
+yet, and it will not install the dependencies for you.
+
+Two things to know if you inherited an older checkout:
+
+- A virtualenv one level **above** the repo (`VISION-BASED/.venv`) is not detected,
+  because PyCharm only auto-detects `.venv` in the project root. It also contains
+  nothing but `pip` and `setuptools`, so it would fail on the first `import numpy`
+  even if it were found. It is unused and safe to delete.
+- A virtual environment is **never** portable. Its `pyvenv.cfg` hardcodes absolute
+  paths and its `site-packages` holds wheels compiled for one OS and CPU
+  architecture, so it cannot be copied between machines or committed to git — hence
+  the `.gitignore` entry. Always recreate it locally with `setup.sh`.
+
+`vispy`, `PyOpenGL` and `opencv-python-headless` are optional; the tests that need
+them skip when they are absent.
+
 ## Quick start
 
 ```bash
-pip install -r requirements.txt
-
 python main.py check        # 10-second smoke test of every subsystem
-python main.py test         # 141 unit tests
+python main.py test         # 141 tests (a few skip without the extras)
 python main.py figures      # experiments A-F  ->  outputs/*.png
 python main.py animate      # closed-loop GIF + summary sheet
 python main.py all          # everything, in order
@@ -61,6 +100,8 @@ reported result uses it), sensor radiometry, eclipse, or actuator lag.
 
 ```
 main.py                  single entry point - test / figures / animate / check
+setup.sh                 creates and populates .venv/
+requirements.txt         core dependencies (optional extras are commented)
 viz/style.py             monochrome figure style shared by every plot
 
 dynamics/
@@ -224,6 +265,10 @@ it as a reference and skip without it.
 python main.py test              # all 141
 python main.py test -k epnp      # a subset
 ```
+
+Two or three tests skip on a minimal install: the ones that cross-check EPnP and the
+LM refiner against OpenCV, and the GPU-renderer suite. `bash setup.sh --gpu --dev`
+enables them.
 
 The suite is written to be *sensitive*, not merely green. Tests assert against
 independent references (`scipy.spatial.transform`, `cv2`) and against invariants that
