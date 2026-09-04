@@ -1,74 +1,64 @@
 \section{Conclusion}
 
-This paper presented a modular closed-loop simulation framework
-for vision-based autonomous spacecraft rendezvous and evaluated
-each component of the perception, estimation, and guidance
-pipeline through six targeted experiments.
+This paper presented a modular closed-loop simulation framework for
+vision-based rendezvous with a tumbling non-cooperative target, and asked what the pose-estimation and guidance literatures do not answer
+between them: given a monocular front end of known accuracy, will the loop
+close?
 
-The dynamics experiment confirmed that the HCW state-transition
-implementation is numerically consistent with high-accuracy DOP853
-integration to sub-nanometer position precision over three orbital
-periods, validating the dynamics model as a suitable foundation
-for the subsequent control and estimation studies.
+Each subsystem was validated in isolation. The analytical HCW
+state-transition implementation agrees with DOP853 integration to
+$4.55\times10^{-10}$~m over three orbital periods. EPnP with full $\beta$
+refinement matches a reference implementation to within a factor of 1.2 in
+rotation error and solves exactly coplanar keypoint subsets --- approximately
+3\,\% of random six-point samples --- that the reference rejects. RANSAC--EPnP
+fails in no trial up to 30\,\% outlier contamination; bare EPnP fails in
+99\,\% of trials at 5\,\%. The MEKF and UKF are indistinguishable in
+translation, as exactly linear HCW dynamics require, and differ only in
+attitude, where the MEKF is marginally better and faster.
 
-The pose-estimation experiments established two complementary
-properties of the visual pipeline.
-First, Gauss--Newton nonlinear refinement substantially reduces
-the raw EPnP translation error across all tested noise levels,
-achieving a $76\%$ reduction at $5$~px pixel noise.
-Second, RANSAC-based correspondence rejection is essential for
-robustness: bare EPnP failed in up to $100\%$ of trials at
-$30\%$ outlier contamination, while RANSAC--EPnP maintained
-zero solver failures and sub-$8$~cm translation accuracy
-throughout the tested range.
+The closed-loop result is that the binding constraint is measurement
+\emph{availability}, set by geometry rather than noise. Pooled over 3887
+control steps of 100 dispersed Monte Carlo trials, the pose solve succeeds on
+100\,\% of steps beyond 6~m and on 1.8\,\% inside 1~m. The transition is
+predictable in closed form: a target of characteristic length $L$ fills a sensor
+of width $W$ pixels at $z_{fill} = fL/W$, here 6.25~m, and the first range bin
+whose availability interval excludes unity is 5--6~m. Inside $z_{fill}$ the
+keypoints simultaneously in frame fall below the six a minimal RANSAC sample
+requires, and no better solver recovers them.
 
-The state-estimation comparison showed that MEKF and UKF achieve
-effectively identical translational performance under the
-controlled Gaussian measurement model, with position and
-velocity RMSE of $0.60$~m and $0.023$~m/s respectively.
-The MEKF produced a marginally lower attitude RMSE
-($1.33^\circ$ vs $1.34^\circ$), while the UKF required
-approximately half the wall-clock execution time.
+Pose RMSE is therefore the wrong figure of merit here. In a paired ablation
+over 40 dispersed trials per level, the median terminal range is flat from 0.3
+to 3.0~px, varying by 4~cm while keypoint noise grows tenfold and the pose error
+with it, and the degradation that follows is a threshold rather than a drift:
+the median trial at 4~px docks as tightly as the median trial at 0.3~px, while
+the 95th percentile of terminal range rises from 0.73~m to 12.47~m and docking
+success falls from 100\,\% to 85\,\% [71,\,93]. Roughly one trial in seven
+diverges completely, because the solver's success rate inside $z_{fill}$ falls
+low enough that the filter coasts on prediction through the terminal phase.
+Terminal approach inside the fill range thus requires a change of sensing --- a
+wider lens, a second short-range camera, or a keypoint subset chosen to stay in
+frame --- and that, not sub-pixel feature localisation, is the margin worth
+buying.
 
-The guidance and control experiment revealed a clear performance
-trade-off between the two strategies.
-MPC achieved $58\%$ lower cumulative $\Delta v$ than LQR
-($7.02$~m/s vs $16.83$~m/s) for the same rendezvous task,
-but at a $300\times$ higher per-step computational cost
-($3.00$~ms vs $0.01$~ms).
-Both controllers converged to sub-millimetre final range,
-confirming that terminal accuracy is not a differentiating factor
-for the unconstrained scenario evaluated here.
+Two methodological points support these conclusions. The campaign disperses
+initial range, bearing, closing speed, tumble rate, target attitude and
+navigation initialisation error, not only the seed; along a single fixed
+approach the same ablation collapses far more sharply, because every trial then
+meets the field-of-view knee at identical geometry and tumble phase.
+Availability must also be measured against the range the camera is at, not the
+range a trial began from: binned by initial range the dropout rate is
+34.3\,\%, 33.3\,\% and 31.7\,\%, carrying no information because every trial
+that closes traverses the whole interval.
 
-The end-to-end Monte Carlo study demonstrated $100\%$ docking
-success over 25 trials for all three configurations tested:
-perfect-state feedback, direct noisy-measurement EKF, and the
-full vision--MEKF pipeline.
-The full pipeline achieved cumulative $\Delta v$ comparable to
-the perfect-state reference ($\approx40.2$~m/s), substantially
-below the direct EKF configuration ($\approx68.2$~m/s), showing
-that RANSAC--EPnP visual measurements provide cleaner state
-estimates than direct noisy position measurements under the
-tested conditions.
-The pixel-noise ablation further confirmed that $100\%$ docking
-success is maintained from $0.3$~px to $4.0$~px, demonstrating
-substantial tolerance of the closed-loop system to image-plane
-measurement degradation.
-
-Taken together, the results validate the proposed architecture
-at both the subsystem and system level.
-The principal limitation of the present study is its reliance on
-a simplified synthetic camera model with parametric keypoints
-and additive Gaussian noise; real imagery introduces
-illumination variation, partial target visibility,
-texture-dependent matching ambiguities, and hardware-specific
-noise characteristics not captured by this model.
-
-Future work should address these limitations through integration
-of a higher-fidelity rendering pipeline, extension to
-unstructured natural-feature keypoints, and hardware-in-the-loop
-testing with a real camera and representative embedded processor.
-Incorporating $J_2$ and atmospheric drag perturbations into
-the dynamics model and evaluating the MPC approach-cone constraint
-in the closed-loop end-to-end pipeline are also important
-directions for future investigation.
+The principal limitation is the front end. Correspondences are known and their
+projection analytic, so the perception chain is idealised: real imagery adds
+illumination variation, specular glint, Earth-limb background, partial
+visibility and matching ambiguity, all of which would reduce availability
+further and none of which would move $z_{fill}$, set by the optics and target
+alone. The availability result is therefore best read as an upper bound.
+Future work should re-measure the availability profile against a rendered or
+hardware-in-the-loop front end; extend the analysis to a threshold-free robust
+estimator, whose principal benefit would be to the breakdown point measured
+here; and address the terminal phase directly, through the multi-sensor
+arrangement the fill criterion implies or a guidance law that anticipates the
+outage rather than coasting through it.

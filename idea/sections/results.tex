@@ -1,12 +1,11 @@
 \section{Results and Discussion}
 \label{sec:results}
 
-The architecture is evaluated in six experiments. Experiments~A--C verify the
-individual subsystems against independent references; D and E compare design
-choices within the estimator and the controller; F closes the loop and
-characterises the operating envelope. Every number in this section is produced
-by the scripts named in Sec.~\ref{sec:method} and is reproducible from the
-stated seeds.
+Experiments~A--C verify the individual subsystems against independent
+references, D and E compare design choices within the estimator and the
+controller, and F closes the loop and characterises the operating envelope.
+Every number below is produced by the scripts named in Sec.~\ref{sec:method}
+and is reproducible from the stated seeds.
 
 \subsection{Dynamics Validation}
 \label{sec:res_dynamics}
@@ -14,67 +13,26 @@ stated seeds.
 The numerical propagator was validated against the analytical HCW
 state-transition solution over three orbital periods, using DOP853 with
 relative and absolute tolerances of $10^{-12}$ and $10^{-14}$. The maximum
-position discrepancy was $4.55\times10^{-10}$~m, i.e.\ below one nanometre,
-and the maximum velocity discrepancy was $5.38\times10^{-13}$~m/s
-(Fig.~\ref{fig:dynamics_validation}).
-
-We quote these figures to two significant digits deliberately. The comparison
-contains no random element, but the DOP853 step sequence is chosen adaptively
-and therefore depends on the SciPy release; across the versions tested the
-result moves by a few per cent. The physically meaningful statement is that
-the numerical error is sub-nanometre, nine orders of magnitude below the
+position discrepancy was $4.55\times10^{-10}$~m and the maximum velocity
+discrepancy $5.38\times10^{-13}$~m/s.
+Sweeping the tolerance reduces the maximum position error monotonically from
+$4.50\times10^{-4}$~m at $(10^{-6},10^{-8})$ to $4.73\times10^{-11}$~m at
+$(10^{-13},10^{-15})$: the integrator is converging, not merely reporting
+small residuals. Two significant digits are quoted because the adaptive DOP853 step sequence
+depends on the SciPy release, across whose tested versions the result moves by
+a few per cent. The numerical error is sub-nanometre, nine orders of magnitude below the
 metre-level separations of interest and eight below the centimetre-level pose
-errors of Sec.~\ref{sec:res_pose}. Numerical propagation error is therefore
-not a contributor to any subsequent result.
+errors of Sec.~\ref{sec:res_pose}, and is therefore not a contributor to any
+subsequent result.
 
-Table~\ref{tab:tolerance} and Fig.~\ref{fig:tolerance_convergence} show the
-error decreasing monotonically with tolerance, confirming that the integrator
-is converging rather than merely reporting small residuals.
-
-\begin{table}[t]
-\caption{DOP853 convergence. Maximum error against the analytical HCW STM
-over three orbits.}
-\label{tab:tolerance}
-\centering
-\begin{tabular}{llll}
-\hline
-rtol & atol & Max position [m] & Max velocity [m/s] \\
-\hline
-$10^{-6}$  & $10^{-8}$  & $4.50\times10^{-4}$  & $4.71\times10^{-7}$ \\
-$10^{-8}$  & $10^{-10}$ & $5.18\times10^{-6}$  & $5.66\times10^{-9}$ \\
-$10^{-10}$ & $10^{-12}$ & $4.97\times10^{-8}$  & $5.72\times10^{-11}$ \\
-$10^{-12}$ & $10^{-14}$ & $4.55\times10^{-10}$ & $5.38\times10^{-13}$ \\
-$10^{-13}$ & $10^{-15}$ & $4.73\times10^{-11}$ & $5.14\times10^{-14}$ \\
-\hline
-\end{tabular}
-\end{table}
-
-\begin{figure}[t]
-    \centering
-    \includegraphics[width=\columnwidth]
-    {figures/expA_fig1_dynamics_validation.png}
-    \caption{Position and velocity differences between the analytical HCW
-    solution and DOP853 numerical propagation over three orbital periods.}
-    \label{fig:dynamics_validation}
-\end{figure}
-
-\begin{figure}[t]
-    \centering
-    \includegraphics[width=\columnwidth]
-    {figures/expA_fig2_tolerance_convergence.png}
-    \caption{Maximum position and velocity error against relative integration
-    tolerance.}
-    \label{fig:tolerance_convergence}
-\end{figure}
 
 \subsection{Vision-Based Pose Estimation}
 \label{sec:res_pose}
 
-Pose sensitivity to image-plane noise was measured over 200 Monte Carlo trials
-per noise level, with the target at a fixed 20~m range and attitude, seed 42.
-Results appear in Table~\ref{tab:pose_noise} and Fig.~\ref{fig:pose_noise}.
+Table~\ref{tab:pose_noise} and Fig.~\ref{fig:pose_noise} report pose
+sensitivity to image-plane noise at a fixed 20~m range and attitude.
 
-\begin{table}[t]
+\begin{table}[!tb]
 \caption{Pose error against keypoint noise. 200 trials per level, 15
 keypoints, 20~m range. RMSE over successful solves.}
 \label{tab:pose_noise}
@@ -96,38 +54,36 @@ $\sigma_{px}$ & \multicolumn{2}{c}{EPnP} & \multicolumn{2}{c}{EPnP + LM} & solve
 \end{tabular}
 \end{table}
 
-Both errors grow essentially linearly with $\sigma_{px}$, as expected when the
-geometry is fixed and the noise is small enough for the linearisation about the
+Both errors grow essentially linearly with $\sigma_{px}$, as expected with the
+geometry fixed and the noise small enough for the linearisation about the
 true pose to hold. At 20~m and $f = 800$~px a 1~px displacement subtends
-2.5~cm, and the observed 4.38~cm translation RMSE at $\sigma_{px} = 1$~px is
-consistent with that scale given 15 keypoints spanning a
-$372 \times 112$~px image patch.
+2.5~cm, consistent with the observed 4.38~cm translation RMSE at
+$\sigma_{px} = 1$~px given 15 keypoints spanning a $372 \times 112$~px image
+patch.
 
-\paragraph{On the benefit of nonlinear refinement.}
 Levenberg--Marquardt refinement reduces translation error by 9--14\% and
-attitude error by 10--14\% over the range tested. This is a modest
-improvement and we report it as such, because a much larger apparent benefit
-is easy to obtain accidentally. The closed-form stage of EPnP is accurate only
-if the control-point coefficients $\beta_k$ are themselves refined against the
+attitude error by 10--14\% over the range tested. We report this modest gain
+as such because a much larger apparent benefit is easy to obtain
+accidentally: the closed-form stage of EPnP is accurate only if the
+control-point coefficients $\beta_k$ are themselves refined against the
 inter-control-point distance constraints (Sec.~\ref{sec:epnp_gn}) rather than
 read directly off the linearised system in the products $\beta_k\beta_l$.
 Omitting that internal refinement degrades raw EPnP by roughly a factor of
-four, which then makes the subsequent LM stage appear to deliver a large gain.
-With the reference algorithm implemented in full, most of the achievable
-accuracy is present before LM runs.
+four, which then makes the LM stage appear to deliver a large gain. With the
+reference algorithm implemented in full, most of the achievable accuracy is
+present before LM runs.
 
-Three cross-checks support the implementation. Our EPnP agrees with the
+Three cross-checks support the implementation: our EPnP agrees with the
 OpenCV \texttt{SOLVEPNP\_EPNP} reference to within a factor of 1.2 in rotation
 error at $\sigma_{px} = 1$~px; the refined solver matches
 \texttt{cv2.solvePnPRefineLM} to four decimal places at every noise level; and
-exactly coplanar keypoint subsets are solved to $0.0000^\circ$ --- a case the
-OpenCV EPnP implementation does not handle, and one that arises in
-approximately 3\% of random six-point samples drawn from this target's
-keypoint set.
+exactly coplanar keypoint subsets are solved to $0.0000^\circ$, a case the
+OpenCV EPnP implementation does not handle and one arising in approximately
+3\% of random six-point samples from this target's keypoint set.
 
-\begin{figure}[t]
+\begin{figure}[!tb]
     \centering
-    \includegraphics[width=\columnwidth]
+    \includegraphics[width=0.86\columnwidth]
     {figures/expB_fig2_pose_vs_noise.png}
     \caption{Pose error against keypoint noise for raw EPnP and after
     Levenberg--Marquardt refinement. 200 trials per level.}
@@ -137,14 +93,11 @@ keypoint set.
 \subsection{Robustness to Correspondence Outliers}
 \label{sec:res_ransac}
 
-Table~\ref{tab:ransac} reports the effect of gross correspondence errors, with
-a fraction $f_{out}$ of the 15 keypoints replaced by uniformly distributed
-image points. Inlier noise is $\sigma_{px} = 1$~px; RANSAC uses a 2~px inlier
-threshold, a six-point minimal sample and a 500-iteration budget. A trial
-counts as failed if the solver reports failure or the recovered rotation error
-exceeds $15^\circ$.
+Table~\ref{tab:ransac} reports the effect of replacing a fraction $f_{out}$ of
+the 15 keypoints by uniformly distributed image points, with inlier noise held
+at $\sigma_{px} = 1$~px.
 
-\begin{table}[t]
+\begin{table}[!tb]
 \caption{Outlier robustness. 200 trials per level. Errors are RMSE over
 successful trials; a dash indicates too few successes to report.}
 \label{tab:ransac}
@@ -163,17 +116,14 @@ $f_{out}$ & \multicolumn{3}{c}{EPnP alone} & \multicolumn{3}{c}{RANSAC--EPnP} \\
 \end{tabular}
 \end{table}
 
-Two observations follow. First, a single gross outlier destroys the
-least-squares solution: at $f_{out} = 5\%$, fewer than one outlier per frame on
-average, bare EPnP fails in 99\% of trials. Outlier rejection is not a
-refinement but a precondition for applying a PnP solver to real
-correspondences.
-
-Second, RANSAC--EPnP fails in no trial up to $f_{out} = 30\%$, and degrades
-only mildly --- 5.18 to 6.07~cm in translation, 0.854 to 1.037$^\circ$ in
-attitude. The residual growth is consistent with the reduced number of true
-inliers available to the final refit rather than with any breakdown of the
-consensus search.
+A single gross outlier destroys the least-squares solution: at
+$f_{out} = 5\%$, fewer than one outlier per frame on average, bare EPnP fails
+in 99\% of trials. Outlier rejection is not a refinement but a precondition
+for applying a PnP solver to real correspondences. RANSAC--EPnP fails in no
+trial up to $f_{out} = 30\%$ and degrades only mildly --- 5.18 to 6.07~cm in
+translation, 0.854 to 1.037$^\circ$ in attitude --- growth consistent with the
+reduced number of true inliers available to the final refit rather than with
+any breakdown of the consensus search.
 
 At $f_{out} = 0\%$ RANSAC is slightly \emph{worse} than bare EPnP (5.18~cm
 against 4.275~cm). This is expected rather than a defect: the 2~px inlier gate
@@ -181,9 +131,9 @@ discards a few legitimate but noisy points, so the final refit uses less data.
 Robustness carries a price, and disabling outlier rejection is reasonable when
 correspondences are known to be clean.
 
-\begin{figure}[t]
+\begin{figure}[!tb]
     \centering
-    \includegraphics[width=\columnwidth]
+    \includegraphics[width=0.86\columnwidth]
     {figures/expC_fig3_ransac_robustness.png}
     \caption{Pose error and failure rate against outlier fraction, for EPnP
     alone and for RANSAC--EPnP. 200 trials per level.}
@@ -193,15 +143,13 @@ correspondences are known to be clean.
 \subsection{Filter Comparison and Consistency}
 \label{sec:res_filter}
 
-Experiment~D isolates the estimator. Both filters receive an identical
-sequence of direct pose measurements corrupted by $\sigma_{pos} = 0.5$~m and
-$\sigma_{att} = 0.05$~rad, over 300 steps at $\Delta t = 10$~s, from an
-initial position offset of 3.9~m and an initial attitude error of $17^\circ$.
-This is not an end-to-end camera simulation: the perception chain is
-deliberately replaced by an equivalent noise model so that filter behaviour
-can be examined without confounding it with pose-solver failures.
+Experiment~D isolates the estimator: both filters receive an identical
+sequence of direct pose measurements over 300 steps, from an initial position
+offset of 3.9~m and an initial attitude error of $17^\circ$, with the
+perception chain replaced by an equivalent noise model so that filter
+behaviour is not confounded with pose-solver failures.
 
-\begin{table}[t]
+\begin{table}[!tb]
 \caption{Multiplicative EKF against UKF on identical measurements. 300 steps,
 $\Delta t = 10$~s, seed 42.}
 \label{tab:filters}
@@ -221,27 +169,24 @@ Wall-clock time [s]           & 1.602   & 1.662 \\
 \end{tabular}
 \end{table}
 
-The two filters are indistinguishable in translation, and the reason is
-structural rather than empirical: HCW relative translation is exactly linear,
-so the unscented transform and the analytic Jacobian describe the same map and
-must agree to machine precision whatever the sigma-point spread. Any
-difference can appear only through the attitude and rate block, and there the
-UKF is marginally worse in this scenario.
+The two filters are indistinguishable in translation for a structural rather
+than an empirical reason: HCW relative translation is exactly linear, so the
+unscented transform and the analytic Jacobian describe the same map and must
+agree to machine precision whatever the sigma-point spread. Any difference can
+appear only through the attitude and rate block, and there the UKF is
+marginally worse, and marginally \emph{slower} --- 1.662~s against 1.602~s,
+3.7\% --- as expected of 25 sigma points per step against a single analytic
+Jacobian propagation. We therefore find no advantage to the UKF for this
+problem and use the MEKF throughout the closed-loop study. Two caveats: the
+sigma-point spread parameter must be $O(0.1\text{--}1)$, since with the
+frequently quoted $\alpha = 10^{-3}$ and $n_x = 12$ one obtains
+$n_x + \lambda = 1.2\times10^{-5}$, a spread of $0.0035\sigma$ and a centre
+weight of $-10^{6}$, at which point the unscented transform has collapsed onto
+a finite-difference linearisation and an ``EKF versus UKF'' comparison
+compares a filter with itself; and these timings are on unpinned consumer
+hardware, so the 3.7\% gap should be read as ``no meaningful difference'', not
+as a measurement.
 
-The UKF is also marginally \emph{slower} --- 1.662~s against 1.602~s, 3.7\%
---- which is the expected outcome, since it evaluates 25 sigma points per step
-against a single analytic Jacobian propagation. We therefore find no advantage
-to the UKF for this problem and use the MEKF throughout the closed-loop study.
-Two caveats matter. The sigma-point spread parameter must be
-$O(0.1\text{--}1)$: with the frequently quoted $\alpha = 10^{-3}$ and
-$n_x = 12$ one obtains $n_x + \lambda = 1.2\times10^{-5}$, a spread of
-$0.0035\sigma$ and a centre weight of $-10^{6}$, at which point the unscented
-transform has collapsed onto a finite-difference linearisation and an ``EKF
-versus UKF'' comparison compares a filter with itself. And these timings are
-on unpinned consumer hardware, so the 3.7\% gap should be read as ``no
-meaningful difference'', not as a measurement.
-
-\paragraph{Consistency.}
 Filter consistency is assessed through the normalised innovation squared,
 \begin{equation}
 \mathrm{NIS}_k = \boldsymbol{\nu}_k^{\top}\mathbf{S}_k^{-1}\boldsymbol{\nu}_k,
@@ -251,7 +196,7 @@ which for a consistent filter is $\chi^2$ distributed with $n_z = 6$ degrees
 of freedom. Over 3600 updates (12 seeds $\times$ 300 steps) the sample mean is
 $\bar{\mathrm{NIS}} = 6.044$, against a 95\% confidence interval on the mean of
 $[5.887,\,6.113]$ obtained from $n_z \pm 1.96\sqrt{2 n_z / N}$ using
-$\mathrm{Var}[\chi^2_k] = 2k$. The fraction of updates exceeding
+$\mathrm{Var}[\chi^2_k] = 2k$; the fraction of updates exceeding
 $\chi^2_{6,0.99} = 16.81$ is 0.97\%, against a nominal 1\%. The filter is
 therefore consistent: its reported covariance matches the errors it actually
 makes, and the Mahalanobis gate rejects at the designed rate.
@@ -262,43 +207,19 @@ formed multiplicatively on $SO(3)$ (Sec.~\ref{sec:mekf_residual}); the process
 noise must be acceleration-driven with the position--velocity cross terms
 retained (Sec.~\ref{sec:process_noise}); and the truth must carry a
 disturbance that the filter's $\mathbf{Q}$ actually describes. Substituting a
-global rotation-vector residual in the same configuration yields
+global rotation-vector residual yields
 $\bar{\mathrm{NIS}} = 6.82$, an over-confident filter; removing the truth
 disturbance yields 5.77, a conservative one.
 
-\begin{figure}[t]
-    \centering
-    \includegraphics[width=\columnwidth]
-    {figures/expD_fig4_filter_tracking.png}
-    \caption{MEKF and UKF tracking errors against time for an identical
-    measurement sequence.}
-    \label{fig:filter_tracking}
-\end{figure}
 
 \subsection{Guidance: LQR and MPC}
 \label{sec:res_control}
 
 Experiment~E compares the infinite-horizon LQR with the receding-horizon MPC
-on a 20~m approach, sharing the same state and control weights, sample time and
-thrust limit $u_{max} = 0.1$~m/s$^2$, with the LQR solution as the MPC
-terminal cost. The approach corridor is disabled so that thrust saturation is
-the only active constraint.
+on a 50~m along-track approach, sharing weights, sample time and thrust limit,
+with the LQR solution as the MPC terminal cost and the corridor disabled so
+that thrust saturation is the only active constraint.
 
-\begin{table}[t]
-\caption{LQR against MPC. 20~m approach, $u_{max} = 0.1$~m/s$^2$, $N = 20$.}
-\label{tab:control}
-\centering
-\begin{tabular}{lrr}
-\hline
-Metric & LQR & MPC \\
-\hline
-Final range [m]                & 0.0000 & 0.0000 \\
-Total $\Delta v$ [m/s]         & 16.83  & 5.00 \\
-Max $\|\mathbf{u}\|$ [m/s$^2$] & 0.1014 & 0.1009 \\
-Time per step [ms]             & 0.01   & 0.57 \\
-\hline
-\end{tabular}
-\end{table}
 
 MPC reaches the same terminal accuracy for 5.00~m/s against 16.83~m/s, a 70\%
 reduction in propellant. The mechanism must be stated precisely, because the
@@ -309,43 +230,33 @@ therefore constraint handling, not prediction: the LQR gain demands
 1.77~m/s$^2$ at the initial condition, seventeen times the actuator limit, and
 is then clipped per axis, whereas MPC distributes the available authority over
 its horizon. The honest framing is \emph{MPC against a saturated LQR}, and the
-result is a statement about anti-windup. A constrained-LQR or
+result is a statement about anti-windup; a constrained-LQR or
 reference-governor baseline would narrow the gap and is the appropriate
 comparison for future work.
 
 The measured 0.57~ms per step reflects an active-set shortcut: the
-box-constrained problem is solved first, and the corridor-constrained problem
-only when the corridor is violated at that optimum. With the corridor active
-throughout, the per-step cost rises by two orders of magnitude and becomes
-dominated by a small number of hard early steps, for which a median and 95th
-percentile should be reported rather than a mean.
+corridor-constrained problem is solved only when the corridor is violated at
+the box-constrained optimum. With the corridor active throughout, the per-step
+cost rises by two orders of magnitude and is dominated by a few hard early
+steps, for which a median and 95th percentile are the appropriate statistics.
 
-\begin{figure}[t]
+\begin{figure}[!tb]
     \centering
-    \includegraphics[width=\columnwidth]
+    \includegraphics[width=0.86\columnwidth]
     {figures/expE_fig6_lqr_vs_mpc_trajectory.png}
     \caption{LQR and MPC approach trajectories in the LVLH plane.}
     \label{fig:lqr_mpc_traj}
-\end{figure}
-
-\begin{figure}[t]
-    \centering
-    \includegraphics[width=\columnwidth]
-    {figures/expE_fig7_lqr_vs_mpc_comparison.png}
-    \caption{Range, thrust and cumulative $\Delta v$ for the LQR and MPC
-    approaches.}
-    \label{fig:lqr_mpc_cmp}
 \end{figure}
 
 \subsection{Closed-Loop Performance}
 \label{sec:res_closedloop}
 
 The full pipeline was run from a 30~m initial separation with a tumbling
-target ($\boldsymbol{\omega}_0 = [0.02,\ 0.05,\ 0.01]$~rad/s),
-$\sigma_{px} = 1.5$~px keypoint noise, a 0.3~m/s$^2$ thrust limit and a 1~s
-control interval. Table~\ref{tab:closedloop} summarises 12 seeds.
+target ($\boldsymbol{\omega}_0 = [0.02,\ 0.05,\ 0.01]$~rad/s).
+Table~\ref{tab:closedloop} summarises 12 seeds: all dock, in 2.56~m/s of
+$\Delta v$, with no step reaching the thrust limit.
 
-\begin{table}[t]
+\begin{table}[!tb]
 \caption{Closed-loop performance over 12 seeds. Docking is range $<1$~m with
 closing speed $<0.05$~m/s.}
 \label{tab:closedloop}
@@ -365,8 +276,7 @@ Thrust-saturated steps      & 0     & 0 \\
 \end{tabular}
 \end{table}
 
-All 12 seeds dock, in 2.56~m/s of $\Delta v$, with no step reaching the thrust
-limit. The absence of saturation is a design requirement rather than an
+The absence of saturation is a design requirement rather than an
 observation: an LQR gain tuned without regard to the actuator limit demands
 approximately ninety times $u_{max}$ at 30~m range, saturates on a quarter of
 all steps, arrives at 4~m/s and passes through the target before returning ---
@@ -387,16 +297,16 @@ noise.
 Availability must be measured against the range the camera is \emph{at}, not
 against the range a trial started from. Every trial that closes traverses the
 whole range interval, so a trial-level dropout rate averages the far field,
-where the target is a few pixels across and every keypoint projects inside
-the frame, with the terminal phase, where the target overfills the sensor. The
-trial-level rate is accordingly almost constant across the dispersion:
+where every keypoint projects inside the frame, with the terminal phase, where
+the target overfills the sensor. That rate is accordingly almost constant
+across the dispersion:
 $34.3\%$, $33.3\%$ and $31.7\%$ for trials beginning in the 10--20~m, 20--30~m
 and 30--50~m bands respectively, which says nothing at all.
 Table~\ref{tab:dropout} therefore pools the per-step outcome of every step of
 every trial in the dispersed campaign of Section~\ref{sec:res_configs} and
 bins it by instantaneous range.
 
-\begin{table}[t]
+\begin{table}[!tb]
 \caption{Measurement availability against instantaneous range, pooled over
 3887 control steps of 100 dispersed Monte Carlo trials at
 $\sigma_{px} = 1.5$~px. A solve is attempted only when at least six keypoints
@@ -408,10 +318,7 @@ per-step availability.}
 \hline
 Range [m] & Steps & Mean visible & Availability & 95\,\% CI \\
 \hline
-30--50   & 237 & 15.00 & 100.0\% & [98.4,\,100.0] \\
-20--30   & 553 & 15.00 & 100.0\% & [99.3,\,100.0] \\
-15--20   & 429 & 15.00 & 100.0\% & [99.1,\,100.0] \\
-10--15   & 467 & 15.00 & 100.0\% & [99.2,\,100.0] \\
+10--50   & 1686 & 15.00 & 100.0\% & [99.8,\,100.0] \\
 8--10    & 201 & 14.44 & 100.0\% & [98.1,\,100.0] \\
 6--8     & 234 & 10.93 & 100.0\% & [98.4,\,100.0] \\
 5--6     & 131 &  8.63 &  96.9\% & [92.4,\,98.8] \\
@@ -445,12 +352,12 @@ solution becomes unavailable regardless of detector accuracy.
 
 This has a direct consequence for the noise ablation.
 Table~\ref{tab:ablation} sweeps $\sigma_{px}$ over 40 dispersed trials per
-level. The trials are \emph{paired}: the same seed sequence generates the
-initial position, velocity, tumble rate and attitude at every noise level, so
-the level-to-level difference is the effect of the parameter and not of a
-fresh draw of initial conditions.
+level, \emph{paired}: the same seed sequence generates the initial position,
+velocity, tumble rate and attitude at every noise level, so the level-to-level
+difference is the effect of the parameter and not of a fresh draw of initial
+conditions.
 
-\begin{table}[t]
+\begin{table}[!tb]
 \caption{Terminal accuracy and docking success against keypoint noise. 40
 dispersed trials per level, paired across levels, full vision--MEKF pipeline.
 Terminal range is reported as the median with 5th and 95th percentiles: a
@@ -477,14 +384,13 @@ The median terminal range is flat from 0.3 to 3.0~px --- it varies by 4~cm
 while the noise grows tenfold --- and the degradation appears first in the
 \emph{tail}, not in the centre of the distribution. The 95th percentile rises
 from 0.73~m at 2~px to 8.22~m at 3~px and 12.47~m at 4~px, and docking success
-falls from $100\%$ to $85\%$ over the same interval. The failures are
-therefore not a gradual loss of terminal accuracy: the median trial at 4~px
-docks as tightly as the median trial at 0.3~px, while roughly one trial in
-seven diverges completely. This is the signature of a threshold, not of drift.
-The threshold is the point at which the pose solver's success rate inside
-$z_{fill}$ falls low enough that the filter coasts on prediction for the whole
-terminal phase, and the accumulated dead-reckoning error exceeds the docking
-corridor before the range gate is satisfied.
+falls from $100\%$ to $85\%$ over the same interval. The median trial at 4~px
+docks as tightly as the median trial at 0.3~px while roughly one trial in
+seven diverges completely: the signature of a threshold, not of drift. The
+threshold is the point at which the pose solver's success rate inside $z_{fill}$ falls low
+enough that the filter coasts on prediction for the whole terminal phase, and
+the accumulated dead-reckoning error exceeds the docking corridor before the
+range gate is satisfied.
 
 The dispersion also weakens a conclusion that a single-trajectory study would
 have supported. Repeating this ablation along one fixed approach trajectory,
@@ -509,9 +415,9 @@ frame --- and no improvement in the pose solver will substitute for it. The
 design margin worth buying is field of view and keypoint redundancy at short
 range, not sub-pixel feature localisation.
 
-\begin{figure}[t]
+\begin{figure}[!tb]
     \centering
-    \includegraphics[width=\columnwidth]
+    \includegraphics[width=0.86\columnwidth]
     {figures/expF_fig9_ablation_noise.png}
     \caption{Terminal range, docking success and vision dropout against
     keypoint noise, 40 paired dispersed trials per level. The envelope is flat
@@ -520,9 +426,9 @@ range, not sub-pixel feature localisation.
     \label{fig:ablation}
 \end{figure}
 
-\begin{figure}[t]
+\begin{figure}[!tb]
     \centering
-    \includegraphics[width=\columnwidth]
+    \includegraphics[width=0.86\columnwidth]
     {figures/expF_fig10_availability.png}
     \caption{(a) Per-step measurement availability against instantaneous
     range, pooled over the 100-trial dispersed campaign, with the closed-form
@@ -535,9 +441,8 @@ range, not sub-pixel feature localisation.
 \subsection{Dispersed Monte Carlo Campaign}
 \label{sec:res_configs}
 
-The comparison of pipeline configurations is made over a dispersed Monte Carlo
-campaign rather than over repeated runs of one trajectory. Each trial draws an
-initial range log-uniformly on $[15, 45]$~m, a bearing uniformly within a
+The configurations are compared over a dispersed Monte Carlo campaign rather
+than over repeated runs of one trajectory. Each trial draws an initial range log-uniformly on $[15, 45]$~m, a bearing uniformly within a
 $20^{\circ}$ cone about the radial approach axis, a closing speed uniformly on
 $[-0.15, -0.02]$~m/s with a $1\,\mathrm{cm/s}$ transverse component, a tumble
 rate uniformly on $[0.005, 0.09]$~rad/s about an isotropically distributed
@@ -548,9 +453,10 @@ per trial and split again into an independent dispersion stream and simulator
 stream, so any trial is reproducible in isolation, is independent of the
 campaign size and of execution order, and is identical whether the campaign
 runs serially or in parallel. The three configurations share that seed
-sequence, so they are compared trial-by-trial on identical initial conditions.
+sequence and are therefore compared trial-by-trial on identical initial
+conditions.
 
-\begin{table}[t]
+\begin{table}[!tb]
 \caption{Configuration comparison over 100 dispersed trials each, paired
 across configurations, $\sigma_{px} = 1.5$~px where applicable. Terminal range
 is the median with 5th and 95th percentiles; docking intervals are Wilson
@@ -576,10 +482,9 @@ actuator limit. It would be a mistake to read the full pipeline's marginal
 advantage over the direct-measurement baseline as evidence that vision
 outperforms a half-metre position sensor: the two configurations have
 different measurement error magnitudes, and the comparison is informative only
-about which subsystem is binding --- which at this noise level is neither. The
-configuration comparison becomes discriminating only above 3~px, where
-Table~\ref{tab:ablation} shows the perception chain taking over as the
-limiting factor.
+about which subsystem is binding --- which at this noise level is neither. It
+becomes discriminating only above 3~px, where Table~\ref{tab:ablation} shows
+the perception chain taking over as the limiting factor.
 
 Two aspects of the campaign design are worth stating explicitly, because both
 were defects in an earlier version of this study. First, the perfect-state
@@ -593,13 +498,3 @@ Second, mean $\Delta v$ over all trials is not a propellant budget when some
 trials fail, so the campaign reports it conditioned on docking as well; here
 the two coincide because every trial docked, but they diverge in the ablation
 of Table~\ref{tab:ablation}.
-
-\begin{figure}[t]
-    \centering
-    \includegraphics[width=\columnwidth]
-    {figures/expF_fig8_montecarlo.png}
-    \caption{Terminal range, $\Delta v$ and docking success over 100 dispersed
-    trials per configuration, paired across configurations. Error bars are
-    Wilson 95\,\% score intervals.}
-    \label{fig:montecarlo}
-\end{figure}

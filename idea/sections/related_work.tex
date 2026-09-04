@@ -1,278 +1,211 @@
 \section{Related Work}
 \label{sec:related}
 
-This section reviews the four bodies of work the present study draws on ---
-autonomous rendezvous and proximity operations, monocular relative pose
-estimation, robust correspondence estimation, and constrained guidance and
-control --- and then states, in Section~\ref{sec:gap}, the specific question
-that the intersection of these literatures leaves open and that this paper
-addresses.
+This section reviews the bodies of work the present study draws on ---
+autonomous rendezvous, monocular relative pose estimation, robust
+correspondence estimation, and constrained guidance and control --- and then
+states, in Section~\ref{sec:gap}, the question their intersection leaves open.
 
 \subsection{Autonomous Rendezvous and Proximity Operations}
 \label{sec:rw_arpo}
 
-Automated rendezvous and docking has a multi-decade heritage in human
-spaceflight and is now a core enabling capability for on-orbit servicing,
-active debris removal, and in-space assembly
-\cite{fehse2003rendezvous,flores2014}.  The translational dynamics of
-close-proximity operations are conventionally described by the
-Hill--Clohessy--Wiltshire (HCW) linearisation, which admits a closed-form
-state-transition solution for relative motion in the local orbital frame
-about a near-circular reference orbit \cite{clohessy1960}.
-
-What distinguishes the current generation of missions from that heritage is
-that the target is \emph{non-cooperative}: it carries no docking aids, no
-retro-reflectors, no telemetry link, and in general tumbles.  The
-RemoveDEBRIS mission demonstrated net and harpoon capture of deployed
-sub-satellites in low Earth orbit and, in doing so, exercised a
-vision-based navigation chain against an uncontrolled target
-\cite{aglietti2020removedebris}.  The AVANTI experiment on board BIROS
-achieved autonomous far- and mid-range rendezvous with a non-cooperative
-object using angles-only optical measurements alone
-\cite{gaias2018avanti}.  Both demonstrations establish that the guidance
-layer is mature; both also make clear that the binding constraint has moved
-to the perception layer, and specifically to obtaining pose estimates of
+Automated rendezvous and docking underpins on-orbit servicing, debris removal
+and in-space assembly \cite{fehse2003rendezvous,flores2014}; its translational
+dynamics are conventionally described by the Hill--Clohessy--Wiltshire (HCW)
+linearisation \cite{clohessy1960}. The current generation of missions differs
+in that the target is \emph{non-cooperative}: no docking aids, no
+retro-reflectors, no telemetry link, and in general tumbling. RemoveDEBRIS
+exercised a vision-based navigation chain against an uncontrolled target
+during net and harpoon capture \cite{aglietti2020removedebris}, and AVANTI
+achieved autonomous mid-range rendezvous with a non-cooperative object from
+angles-only measurements \cite{gaias2018avanti}. Both show the guidance layer
+to be mature, and the binding constraint to have moved to pose estimates of
 adequate quality \emph{and adequate frequency} from a passive camera.
 
 \subsection{Model-Based Monocular Relative Pose Estimation}
 \label{sec:rw_pose}
 
 Recovering the six-degree-of-freedom relative pose of a known target from a
-single image is normally cast as a Perspective-$n$-Point (PnP) problem.
-Kelsey~\textit{et al.}~\cite{kelsey2006} gave an early demonstration that
-model-based visual pose estimation is viable for autonomous rendezvous and
-docking; the reviews of Opromolla~\textit{et al.}~\cite{opromolla2017review}
-and Pasqualetto Cassinis~\textit{et al.}~\cite{cassinis2019review} survey the
-resulting family of monocular, stereo and LIDAR pose determination
-architectures and their reported accuracies.
+single image is normally cast as a Perspective-$n$-Point (PnP) problem, shown
+viable for rendezvous and docking by Kelsey~\textit{et al.}~\cite{kelsey2006}
+and surveyed across monocular, stereo and LIDAR architectures
+\cite{opromolla2017review,cassinis2019review}.
 
-Among PnP solvers, the EPnP algorithm of Lepetit~\textit{et al.}
-\cite{lepetit2009epnp} remains widely used onboard because of its
-$\mathcal{O}(n)$ complexity: the reference points are written as a weighted
-combination of four virtual control points, and the pose follows from a
-compact eigen-decomposition, optionally relinearised and refined by a
-Gauss--Newton step in the null-space coefficients.  Two properties of EPnP
-matter for the present work and are treated explicitly in
-Section~\ref{sec:epnp_gn}: its four-control-point construction degenerates
-when the reference points are coplanar, a case Lepetit~\textit{et al.}
-handle by dropping to three control points; and its accuracy without the
-$\beta$ refinement step is materially worse than with it.
+The EPnP algorithm \cite{lepetit2009epnp} remains widely used onboard for its
+$\mathcal{O}(n)$ complexity, writing the reference points as a weighted
+combination of four virtual control points and recovering the pose from a
+compact eigen-decomposition. Two of its properties, treated in
+Section~\ref{sec:epnp_gn}, matter here: the four-control-point construction
+degenerates for coplanar reference points, which Lepetit~\textit{et al.}
+handle by dropping to three; and accuracy without the $\beta$ refinement of
+the null-space coefficients is materially worse.
 
-Subsequent solvers have improved on both the robustness and the optimality
-of the algebraic solution.  Ke and Roumeliotis~\cite{ke2017ap3p} give a
-direct algebraic P3P solution that avoids the intermediate depth
-polynomial, and Terzakis and Lourakis~\cite{terzakis2020sqpnp} present
-SQPnP, a sequential-quadratic-programming formulation that is globally
-optimal for the least-squares PnP cost at a cost comparable to EPnP and
-that does not degrade in the planar and quasi-degenerate configurations
-where the control-point construction is ill-conditioned.  These solvers now
-form the default non-iterative back ends in widely used vision libraries.
-The present framework retains EPnP as its hypothesis generator, both because
-its behaviour under the degeneracies above is instructive and because the
-question this paper asks --- when is a pose solution \emph{available} ---
-is largely independent of which non-iterative solver produces it; the
-comparison in Section~\ref{sec:res_pose} against a reference implementation
-quantifies how much accuracy that choice costs.
+Ke and Roumeliotis~\cite{ke2017ap3p} give a direct algebraic P3P solution
+avoiding the depth polynomial, and Terzakis and
+Lourakis~\cite{terzakis2020sqpnp} present SQPnP, globally optimal for the
+least-squares PnP cost and stable in planar and quasi-degenerate
+configurations. The framework here nonetheless retains EPnP, since the
+question asked --- when is a pose solution \emph{available} --- is largely
+independent of the non-iterative solver; Section~\ref{sec:res_pose} quantifies
+the accuracy cost.
 
 \subsection{Learning-Based Pose Estimation and Its Benchmarks}
 \label{sec:rw_learned}
 
-The most active line of work since 2018 replaces hand-designed feature
-extraction with a learned front end.  Sharma~\textit{et al.}
-\cite{sharma2018} first applied a convolutional network to non-cooperative
-spacecraft pose estimation, and Sharma and D'Amico~\cite{sharma2020nn}
-developed the Spacecraft Pose Network into a full monocular pose
-estimation pipeline evaluated against synthetic and hardware-in-the-loop
-imagery.  Proen{\c{c}}a and Gao~\cite{proenca2020urso} showed that
-photorealistic rendering of orbital scenes is sufficient to train a pose
-regressor, and released the URSO datasets to that end.
+Since 2018, learned front ends have largely displaced hand-designed feature
+extraction. Sharma~\textit{et al.}~\cite{sharma2018} first applied a
+convolutional network to non-cooperative spacecraft pose estimation; Sharma
+and D'Amico~\cite{sharma2020nn} developed it into the Spacecraft Pose Network;
+and Proen{\c{c}}a and Gao~\cite{proenca2020urso} trained a pose regressor on
+photorealistically rendered scenes, releasing the URSO datasets. The Satellite
+Pose Estimation Challenge established the SPEED dataset and a common metric
+\cite{kisantal2020}; SPEED+ \cite{park2022speedplus} added
+hardware-in-the-loop and lightbox imagery exposing the synthetic-to-real
+domain gap, with the follow-on competition analysed by Park~\textit{et
+al.}~\cite{park2023spec2021}; and later work attacks that gap through
+multi-task learning and online refinement \cite{park2024spnv2} and
+flight-ready architectures trained only on synthetic renderings
+\cite{park2026spnv3}. Reported accuracies are now a few tenths of a degree in
+orientation and a fraction of a percent of range in position.
 
-This line of work is unusually well benchmarked.  The Satellite Pose
-Estimation Challenge established the SPEED dataset and a common metric, and
-its results and competition design are reported by
-Kisantal~\textit{et al.}~\cite{kisantal2020}; SPEED+
-\cite{park2022speedplus} added hardware-in-the-loop and lightbox imagery
-specifically to expose the synthetic-to-real domain gap, and the follow-on
-competition results are analysed by Park~\textit{et al.}
-\cite{park2023spec2021}.  Subsequent work has attacked the domain gap
-directly through multi-task learning and online refinement
-\cite{park2024spnv2} and, most recently, through architectures explicitly
-constrained to be flight-ready, evaluated on robotic-testbed imagery while
-trained only on synthetic renderings \cite{park2026spnv3}.  Reported
-accuracies on these benchmarks are now at the level of a few tenths of a
-degree in orientation and a fraction of a percent of range in position.
-
-Three features of this literature bear directly on the present paper.
-First, the benchmarks are \emph{open-loop}: a network is scored on a fixed
-image set, and the camera trajectory that produced those images was not
-generated by a controller acting on the network's own output.  Second, the
-metrics are conditioned on a solution being produced --- images on which
-detection fails are either excluded or absorbed into an aggregate score, so
-the benchmark reports the accuracy of the estimates that exist rather than
-the rate at which estimates exist at all.  Third, learned front ends require
-labelled datasets and provide no geometric guarantee, which is why
-model-based pipelines remain the reference point when the target geometry is
-known; the present work follows the model-based route for exactly that
-reason, and treats its front end as a source of \emph{intermittent}
-measurements.
+Three features bear on the present paper. First, the benchmarks are
+\emph{open-loop}: the camera trajectory that produced the scored images was
+not generated by a controller acting on the network's own output. Second, the
+metrics are conditioned on a solution being produced: images on which
+detection fails are excluded or absorbed into an aggregate score, so the
+benchmark reports the accuracy of the estimates that exist rather than the
+rate at which they exist. Third, learned front ends need labelled data and
+give no geometric guarantee, which is why model-based pipelines remain the
+reference point for known geometry; the present work follows that route,
+treating its front end as a source of \emph{intermittent} measurements.
 
 \subsection{Robust Correspondence Estimation}
 \label{sec:rw_ransac}
 
-Pose estimation degrades sharply when correspondences are wrong, which
-under partial occlusion, specular glint, Earth-limb background or repeated
-structure on the target is the normal case rather than the exception.
-Random Sample Consensus \cite{fischler1981ransac} remains the standard
-framework: minimal-sample hypotheses are scored by consensus-set size, and
-the iteration budget can be adapted online from the running inlier ratio.
-The locally optimised variant, LO-RANSAC \cite{chum2003loransac}, refits the
-model on the full inlier set of each so-far-best hypothesis, which
-substantially improves accuracy without increasing the number of random
-hypotheses.
-
-Two developments since then are relevant.  USAC \cite{raguram2013usac}
-unifies the sampling, verification, degeneracy-detection and local-refinement
-stages into a single framework and shows that the gains of the individual
-variants are largely complementary.  MAGSAC++ \cite{barath2020magsacpp}
-removes the inlier--outlier threshold altogether by marginalising over the
-noise scale and applying an iteratively reweighted least-squares
-optimisation, which makes the estimator markedly less sensitive to the
-choice of the reprojection threshold --- historically the most
-hand-tuned parameter of the whole pipeline.  The framework presented here
-uses adaptive-termination RANSAC with EPnP as the hypothesis solver and a
-final inlier refit on the $SO(3)$ manifold; the breakdown point measured in
-Section~\ref{sec:res_ransac} is the quantity a threshold-free estimator
-such as MAGSAC++ would be expected to improve.
+Wrong correspondences degrade pose estimation sharply, and under occlusion,
+specular glint, Earth-limb background or repeated target structure they are
+the normal case. Random Sample Consensus \cite{fischler1981ransac} remains
+standard: minimal-sample hypotheses are scored by consensus-set size, with the
+iteration budget adapted online from the running inlier ratio. LO-RANSAC
+\cite{chum2003loransac} refits the model on each so-far-best hypothesis's full
+inlier set; USAC \cite{raguram2013usac} unifies sampling, verification,
+degeneracy detection and local refinement, with largely complementary
+component gains; and MAGSAC++ \cite{barath2020magsacpp} removes the
+inlier--outlier threshold by marginalising over the noise scale under an
+iteratively reweighted least-squares optimisation. The framework here uses
+adaptive-termination RANSAC with EPnP as hypothesis solver and a final inlier
+refit on the $SO(3)$ manifold; the breakdown point of
+Section~\ref{sec:res_ransac} is what a threshold-free estimator would improve.
 
 \subsection{Recursive State Estimation for Tumbling Targets}
 \label{sec:rw_filter}
 
-Kalman-type recursive estimators are the standard means of fusing noisy pose
-measurements with a relative-motion model.  Because attitude is
-parameterised by unit quaternions, an additive extended Kalman filter cannot
-preserve the norm constraint through the update, and the standard remedy is
-the multiplicative EKF (MEKF), which propagates a small rotation-vector
-error state composed multiplicatively with a reference quaternion
-\cite{markley2003}.  The unscented Kalman filter \cite{julier2004} instead
-propagates a deterministic set of sigma points and requires no Jacobians,
-at the cost of more dynamics evaluations per step.  Both are implemented and
-compared here under identical measurement conditions
-(Section~\ref{sec:res_filter}), and, as Section~\ref{sec:mekf_residual}
-sets out, the attitude residual is formed multiplicatively on the group
-rather than as a difference of global rotation vectors --- a distinction
-that is invisible for small errors and dominant near the $\pi$-radian
-singularity that a tumbling target visits routinely.
+Kalman-type estimators fuse noisy pose measurements with a relative-motion
+model. Because an additive extended Kalman filter cannot preserve the
+unit-quaternion norm through the update, the standard remedy is the
+multiplicative EKF (MEKF), propagating a small rotation-vector error state
+composed multiplicatively with a reference quaternion \cite{markley2003}; the
+unscented Kalman filter \cite{julier2004} instead propagates sigma points and
+needs no Jacobians, at the cost of more dynamics evaluations. Both are
+compared here (Section~\ref{sec:res_filter}), and, as
+Section~\ref{sec:mekf_residual} sets out, the attitude residual is formed
+multiplicatively on the group rather than by differencing global rotation
+vectors --- a distinction invisible for small errors and dominant near the
+$\pi$-radian singularity a tumbling target visits routinely.
 
-The closest existing work to the present study's concern with coupling is
-that of Pasqualetto Cassinis~\textit{et al.}~\cite{cassinis2021coupled},
-who compare tightly- and loosely-coupled arrangements of a CNN feature
-detector, a covariance-aware PnP solver and an MEKF, and show that
-propagating the image-level covariance into the filter yields an
-advantageous coupling between rotational and translational states.  That
-study couples the \emph{uncertainty} of the pose solution to the filter.  It
-does not couple the \emph{existence} of the pose solution to a controller,
-because there is no controller in the loop: the trajectory is prescribed.
+The closest work on coupling is that of Pasqualetto Cassinis~\textit{et
+al.}~\cite{cassinis2021coupled}, who compare tightly- and loosely-coupled
+arrangements of a CNN detector, a covariance-aware PnP solver and an MEKF, and
+show that propagating the image-level covariance into the filter couples
+rotational and translational states advantageously. That couples the
+\emph{uncertainty} of the pose solution to the filter, not its
+\emph{existence} to a controller, because there is no controller in the loop:
+the trajectory is prescribed.
 
 \subsection{Constrained Guidance and Control for Proximity Operations}
 \label{sec:rw_control}
 
-Linear quadratic regulation gives a closed-form infinite-horizon feedback
-law from an offline solution of the discrete algebraic Riccati equation
-\cite{anderson1990}, and under the HCW linearisation is cheap enough to be
-uncontroversial onboard.  It cannot, however, express the constraints that
-define a safe approach: a thrust bound, a keep-out zone, or an approach
-corridor.  Model predictive control supplies exactly that by re-solving a
-finite-horizon constrained program at every step \cite{mayne2000}.
+Linear quadratic regulation gives a closed-form infinite-horizon feedback law
+from the discrete algebraic Riccati equation \cite{anderson1990}, but cannot
+express the constraints that define a safe approach: a thrust bound, a
+keep-out zone, an approach corridor. Model predictive control supplies exactly
+that by re-solving a finite-horizon constrained program at every step
+\cite{mayne2000}. Di Cairano~\textit{et al.}~\cite{dicairano2012mpc}
+formulated proximity manoeuvring with thrust bounds and line-of-sight
+constraints, showing that for a stationary platform an explicit offline
+solution removes onboard optimisation entirely; Breger and
+How~\cite{breger2008} generated passively safe trajectories under thruster
+failure; and Specht~\textit{et al.}~\cite{specht2023tubempc} applied
+tube-based MPC to rendezvous, guaranteeing constraint satisfaction under
+bounded disturbance.
 
-The application of MPC to spacecraft rendezvous is by now a substantial
-literature in its own right.  Di Cairano~\textit{et al.}
-\cite{dicairano2012mpc} formulated the proximity-manoeuvring problem with
-thrust bounds and line-of-sight constraints for both stationary and rotating
-platforms, and showed that for the stationary case an explicit offline
-solution removes the need for onboard optimisation entirely.  Breger and
-How~\cite{breger2008} addressed the complementary safety question, generating
-trajectories that remain passively safe under thruster failure.  More
-recently, Specht~\textit{et al.}~\cite{specht2023tubempc} applied tube-based
-MPC to autonomous rendezvous, using a robust invariant tube to guarantee
-constraint satisfaction under bounded disturbance --- the standard modern
-answer to the recursive-feasibility problem that a hard corridor constraint
-creates.
-
-The present work does not aim to improve on these formulations.  It
-implements a receding-horizon controller with a second-order approach-cone
-constraint and soft-constrained slack for recursive feasibility
-(Section~\ref{sec:cone}), and evaluates it against LQR on the same scenario,
-so that the guidance layer is representative of current practice while the
-study's variable of interest remains the perception layer.  One point from
-this literature is, however, load-bearing for the present argument: every
-formulation above assumes the state estimate is \emph{available at the
-control rate}.  The tube in \cite{specht2023tubempc} bounds a disturbance,
-not a measurement outage; the explicit map in \cite{dicairano2012mpc} is a
-function of a state that is assumed known.  Intermittent measurement is
-outside the disturbance model these guarantees are built on.
+The present work does not improve on these formulations. It implements a
+receding-horizon controller with a second-order approach-cone constraint and
+soft slack for recursive feasibility (Section~\ref{sec:cone}) and evaluates it
+against LQR on the same scenario, keeping the guidance layer representative
+while the variable of interest remains perception. One point is, however,
+load-bearing: every formulation above assumes the state estimate is
+\emph{available at the control rate}. A tube bounds a disturbance, not a
+measurement outage; an explicit map is a function of a state assumed known.
+Intermittent measurement is outside the disturbance model these guarantees are
+built on.
 
 \subsection{Closed-Loop Simulation Frameworks}
 \label{sec:rw_sim}
 
-Integrated testbeds exist to evaluate complete navigation and control chains
-under controlled conditions.  Gasbarri~\textit{et al.}~\cite{testbed2014}
-present a ground-based facility for vision-based formation flying, and the
-hardware-in-the-loop imagery underlying SPEED+ and its successors
-\cite{park2022speedplus,park2026spnv3} is produced by robotic testbeds of
-the same kind.  Such facilities reproduce the photometric realism that
-synthetic rendering struggles with.  What they typically do not reproduce is
-closed-loop causality: the robot follows a commanded trajectory, so the
-images the estimator sees do not depend on the estimates the controller
-acted on.  The present work makes the opposite trade --- it forgoes
-photometric realism, using an analytic keypoint front end with known
-correspondences, in exchange for a fully closed causal loop in which the
-camera's viewpoint at step $k+1$ is a consequence of the pose solution at
-step $k$, and in which a lost measurement therefore propagates.
+Gasbarri~\textit{et al.}~\cite{testbed2014} present a ground-based facility
+for vision-based formation flying, and the hardware-in-the-loop imagery behind
+SPEED+ and its successors \cite{park2022speedplus,park2026spnv3} comes from
+testbeds of the same kind. Such facilities reproduce the photometric realism
+synthetic rendering struggles with, but not closed-loop causality: the robot
+follows a commanded trajectory, so the images the estimator sees do not depend
+on the estimates the controller acted on. The present work makes the opposite
+trade, forgoing photometric realism for a closed causal loop in which the
+viewpoint at step $k+1$ follows from the pose solution at step $k$, so a lost
+measurement propagates.
 
 \subsection{Gap Addressed by This Work}
 \label{sec:gap}
 
-Taken together, the literature above characterises the two halves of a
-vision-based rendezvous system very well, and characterises them separately.
+Taken together, this literature characterises the two halves of a vision-based
+rendezvous system very well, and characterises them separately.
 
-On one side, the pose-estimation literature reports \emph{accuracy}:
-rotation and translation error as a function of range, illumination,
-architecture and domain, measured on fixed image sets
+On one side, the pose-estimation literature reports \emph{accuracy}: rotation
+and translation error against range, illumination, architecture and domain, on
+fixed image sets
 \cite{kisantal2020,park2023spec2021,park2024spnv2,park2026spnv3,cassinis2019review}.
-These numbers are conditioned on a pose being returned.  On the other side,
-the guidance and control literature reports \emph{closed-loop outcomes}:
-propellant, terminal accuracy, constraint satisfaction, and --- in Monte
-Carlo studies --- docking success rate, under the assumption that the state
-estimate arrives at the control rate
-\cite{dicairano2012mpc,breger2008,specht2023tubempc}.  Work that
-deliberately bridges the two, such as \cite{cassinis2021coupled}, does so at
-the level of \emph{covariance}: it asks how measurement uncertainty should
-enter the filter, not how often a measurement enters at all.
+These numbers are conditioned on a pose being returned. On the other, the
+guidance and control literature reports \emph{closed-loop outcomes}:
+propellant, terminal accuracy, constraint satisfaction, and --- in Monte Carlo
+studies --- docking success rate, assuming the state estimate arrives at the
+control rate \cite{dicairano2012mpc,breger2008,specht2023tubempc}. Work that
+bridges the two, such as \cite{cassinis2021coupled}, does so at the level of
+\emph{covariance}: it asks how measurement uncertainty should enter the
+filter, not how often a measurement enters at all.
 
-The consequence is that a designer holding both halves of the literature can
-predict neither of the two things they most need.  Given a measured pose
-accuracy, there is no model that says whether the closed loop will close;
-and given a closed-loop success rate, there is no attribution of that number
-to the perception chain, because the two are not connected by any statement
-about measurement \emph{availability}.  Availability is not a free parameter
-of the perception system: it is a geometric consequence of the same
-approach trajectory the controller is generating.  As the chaser closes, the
-target's projected extent grows as $1/z$ until it exceeds the field of view,
-at which point the keypoint set visible to the solver collapses --- and it
-collapses precisely in the terminal phase, where the control authority
-needed to recover is smallest.
+The consequence is that a designer holding both halves can predict neither of
+the two things they most need. Given a measured pose accuracy, no model says
+whether the closed loop will close; given a closed-loop success rate, there is
+no attribution of that number to the perception chain, because the two are not
+connected by any statement about measurement \emph{availability}. Availability
+is not a free parameter of the perception system: it is a geometric
+consequence of the same approach trajectory the controller is generating. As
+the chaser closes, the target's projected extent grows as $1/z$ until it
+exceeds the field of view, at which point the visible keypoint set collapses
+--- and it collapses precisely in the terminal phase, where the control
+authority needed to recover is smallest.
 
-This paper closes that gap.  Its contributions are, first, a closed-loop
+This paper closes that gap. Its contributions are, first, a closed-loop
 simulation in which perception, estimation and control are causally coupled,
-so that measurement dropout is generated by the trajectory rather than
-imposed on it; second, a closed-form criterion for the range at which
-field-of-view saturation begins to remove keypoints, $z_{\text{fill}} =
-fL/W$ (Section~\ref{sec:res_dropout}), validated against the measured
-dropout knee; and third, a dispersed Monte Carlo characterisation
+so that measurement dropout is generated by the trajectory rather than imposed
+on it; second, a closed-form criterion for the range at which field-of-view
+saturation begins to remove keypoints, $z_{\text{fill}} = fL/W$
+(Section~\ref{sec:res_dropout}), validated against the measured dropout knee;
+and third, a dispersed Monte Carlo characterisation
 (Section~\ref{sec:res_configs}) showing that closed-loop performance is
 insensitive to pose accuracy across almost an order of magnitude of pixel
 noise and then fails abruptly, with the failure attributable to availability
-rather than accuracy.  The practical implication --- that the design margin
+rather than accuracy. The practical implication --- that the design margin
 worth buying is field of view and keypoint redundancy at short range, not
 sub-pixel feature localisation --- is not derivable from either half of the
 literature alone.

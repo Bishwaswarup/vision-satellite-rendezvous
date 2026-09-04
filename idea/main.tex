@@ -12,6 +12,13 @@
 \usepackage{xcolor}
 \usepackage{hyperref}
 
+\renewcommand{\topfraction}{0.92}
+\renewcommand{\bottomfraction}{0.85}
+\renewcommand{\textfraction}{0.06}
+\renewcommand{\floatpagefraction}{0.80}
+\setlength{\textfloatsep}{8pt plus 2pt minus 2pt}
+\setlength{\dblfloatsep}{8pt plus 2pt minus 2pt}
+
 \begin{document}
 
 \title{
@@ -35,9 +42,30 @@ bishwaswarup@iisc.ac.in
 % -------------------------------------------------
 
 \begin{abstract}
-In this paper we present a simulation based visual navigation and guidance architecture to carry out on orbit autonomous rendezvous and proximity operations. The architecture uses HCW/J2 dynamics, analytically derived spacecraft feature landmark geometries, monocular perspective projection, RANSAC--EPnP pose estimation, a Multiplicative Extended Kalman Filter and LQR/MPC controller implementation. We implement six experiments that measure accuracy in numerical dynamics simulation, visual pose estimation under pixel noise, reliability against keypoint outliers, state estimation, controller results and full closed-loop rendezvous behavior.
-The dynamics are demonstrated to be in error from the analytical solution at most $4.656\times10^{-10}$~m for any given position value.
-EPnP helps to improve pose accuracy, and RANSAC greatly increases robust pose estimation capability under high proportions of outliers. Overall, the closed-loop visual--EKF system is proven capable of successful autonomous rendezvous and docking in 100% of Monte Carlo trials for 25 different trials for up to 4~px.
+We present a closed-loop simulation framework for vision-based autonomous
+rendezvous with a tumbling, non-cooperative target, in which perception,
+estimation and guidance are causally coupled: the camera viewpoint at each
+step is a consequence of the pose solution at the previous one. The framework
+combines Hill--Clohessy--Wiltshire relative dynamics, torque-free target
+attitude propagation, a monocular keypoint front end, RANSAC--EPnP pose
+estimation with manifold refinement, a multiplicative extended Kalman filter,
+and LQR and receding-horizon controllers. Each subsystem is validated in
+isolation --- the analytical state transition agrees with DOP853 integration
+to $4.55\times10^{-10}$~m over three orbits, and RANSAC--EPnP solves every
+trial up to 30\,\% outlier contamination where bare EPnP fails in 99\,\% of
+trials at 5\,\%.
+The closed-loop study identifies measurement \emph{availability}, not pose
+accuracy, as the binding constraint. Pooled over 3887 control steps of 100
+dispersed Monte Carlo trials, the pose solve succeeds on 100\,\% of steps
+beyond 6~m and 1.8\,\% of steps inside 1~m; the transition is predicted in
+closed form by the field-of-view fill range $z_{fill} = fL/W = 6.25$~m. In a
+paired noise ablation the median terminal range is unchanged from 0.3 to
+3.0~px while the pose error grows tenfold, and the degradation that follows
+appears in the tail of the distribution --- the 95th percentile rises from
+0.73~m to 12.47~m and docking success falls from 100\,\% to
+85\,\% [71,\,93] --- rather than in the median. The design margin that matters
+is therefore field of view and keypoint redundancy at short range, not
+sub-pixel feature localisation.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -53,11 +81,7 @@ EPnP, RANSAC, Pose Estimation, State Estimation, Spacecraft Guidance
 
 \input{sections/related_work}
 
-\input{sections/architecture}
-
 \input{sections/mathematical_model}
-
-\input{sections/model_additions}
 
 \input{sections/experimental_methodology}
 
@@ -68,6 +92,27 @@ EPnP, RANSAC, Pose Estimation, State Estimation, Spacecraft Guidance
 % -------------------------------------------------
 % References
 % -------------------------------------------------
+
+% -------------------------------------------------
+% Declarations
+% -------------------------------------------------
+
+\section*{Data and Code Availability}
+
+The simulation framework, the experiment scripts that generate every figure
+and table in this paper, and the per-trial Monte Carlo records are available
+from the author on reasonable request. All results are reproducible from the
+released code: each Monte Carlo trial is seeded from a single spawned seed
+sequence and is therefore reproducible in isolation, independent of the
+campaign size, of execution order, and of whether the campaign is run serially
+or in parallel.
+
+\section*{Use of Generative AI}
+
+The author used an AI coding assistant for code review, defect diagnosis and
+manuscript editing. All algorithms, experiments and results were specified,
+executed and verified by the author, who takes full responsibility for the
+content of this work.
 
 \bibliographystyle{IEEEtran}
 \bibliography{references}

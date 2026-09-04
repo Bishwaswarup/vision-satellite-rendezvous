@@ -1,1049 +1,269 @@
 \section{Mathematical Model}
+
+The testbed is a closed-loop simulation of vision-based rendezvous with a
+tumbling, non-cooperative target, organised into four modules --- dynamics,
+perception, estimation, and guidance-and-control --- so that each can be
+validated in isolation and then exercised inside the complete loop
+(Fig.~\ref{fig:system_architecture}). At every step the true states are
+advanced, the target state is rendered into synthetic image measurements,
+those are reduced to a relative pose, the pose is filtered into a navigation
+state, and the resulting command acts on the chaser dynamics before the next
+step. Perception errors therefore propagate into navigation and control, so
+what is evaluated is the complete autonomous system rather than a set of
+standalone algorithms.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{figures/system_arch.png}
+    \caption{Closed-loop architecture of the proposed vision-based
+    autonomous spacecraft rendezvous framework.}
+    \label{fig:system_architecture}
+\end{figure}
+
 \subsection{Reference Frames and Relative State}
 
-The relative motion of the chaser is described using the target centered Local Vertical and Local Horizontal (LVLH) reference frame. Whereas the Earth Centered Inertial (ECI) frame is used to describe the absolute orbital quantities, while LVLH frame is used for describing the relative rendezvous state. The LVLH frame is defined with its origin at the target spacecraft. The radial axis $\hat{\mathbf{x}}$ points from the Earth toward the target, the orbit normal axis $\hat{\mathbf{z}}$ is aligned with the target orbital angular momentum, and the along-track axis is defined as
-\begin{equation}
-    \hat{\mathbf{y}} = \hat{\mathbf{z}} \times \hat{\mathbf{x}}.
-\end{equation}
-
-The translational relative state is defined as
-\begin{equation}
-    \mathbf{x}_{\mathrm{rel}}
-    =
-    \begin{bmatrix}
-        \mathbf{r} \\
-        \mathbf{v}
-    \end{bmatrix}
-    =
-    \begin{bmatrix}
-        x & y & z & \dot{x} & \dot{y} & \dot{z}
-    \end{bmatrix}^{T},
-\end{equation}
-where $\mathbf{r}=[x,y,z]^T$ is the relative position and
-$\mathbf{v}=[\dot{x},\dot{y},\dot{z}]^T$ is the relative velocity, both expressed in the LVLH frame. The target attitude is represented using a unit quaternion
-\begin{equation}
-    \mathbf{q}
-    =
-    \begin{bmatrix}
-        q_0 & q_1 & q_2 & q_3
-    \end{bmatrix}^{T},
-    \qquad
-    \|\mathbf{q}\|=1,
-\end{equation}
-together with the body frame angular velocity $\boldsymbol{\omega}$. Thus, the combined relative navigation state contains both translational and rotational components.
+Absolute quantities use the Earth Centred Inertial frame; the relative state
+uses the target-centred Local Vertical Local Horizontal (LVLH) frame, with
+radial axis $\hat{\mathbf{x}}$ from the Earth toward the target,
+$\hat{\mathbf{z}}$ along the target orbital angular momentum and
+$\hat{\mathbf{y}}=\hat{\mathbf{z}}\times\hat{\mathbf{x}}$. The translational
+relative state is
+$\mathbf{x}_{\mathrm{rel}}=[\mathbf{r}^{T}\ \mathbf{v}^{T}]^{T}$,
+and the target attitude is carried as a unit quaternion $\mathbf{q}$ with
+body-frame angular velocity $\boldsymbol{\omega}$, giving the attitude state
+$\mathbf{x}_{\mathrm{att}}=[\mathbf{q}^{T}\ \boldsymbol{\omega}^{T}]^{T}$
+subject to $\mathbf{q}^{T}\mathbf{q}=1$. The Hamilton convention is used
+throughout; the dynamics and vision models store $\mathbf{q}$ scalar-first,
+the estimator scalar-last as
+$\mathbf{q}=[q_x\ q_y\ q_z\ q_w]^{T}$.
 
 \subsection{Relative Orbital Dynamics}
 
-For a chaser spacecraft moving in LEO and a near circular reference orbit, the relative translational dynamics are governed by the Hill--Clohessy--Wiltshire (HCW) equations \cite{clohessy1960}. Let $n$ denote the mean motion of the target orbit,
+For a near-circular reference orbit in LEO the relative translational
+dynamics are the Hill--Clohessy--Wiltshire (HCW) equations
+\cite{clohessy1960}. With mean motion $n=\sqrt{\mu/a^3}$, for gravitational
+parameter $\mu$ and target semi-major axis $a$, the controlled equations are
 \begin{equation}
-    n = \sqrt{\frac{\mu}{a^3}},
-\end{equation}
-where $\mu$ is the Earth's gravitational parameter and $a$ is the semi-major axis of the target orbit. 
-
-The controlled HCW equations are
-\begin{align}
+\begin{aligned}
     \ddot{x} - 2n\dot{y} - 3n^2x &= f_x, \\
     \ddot{y} + 2n\dot{x} &= f_y, \\
     \ddot{z} + n^2z &= f_z,
-\end{align}
-
-where $f_x$, $f_y$, $f_z$ represent the control acceleration of the chaser spacecraft with respect to the LVLH frame.
-
-The equations can be written in state-space form as
-\begin{equation}
-    \dot{\mathbf{x}}_{\mathrm{rel}}
-    =
-    \mathbf{A}_{\mathrm{HCW}}\mathbf{x}_{\mathrm{rel}}
-    +
-    \mathbf{B}\mathbf{u},
+\end{aligned}
 \end{equation}
-where,
-\begin{equation}
-\mathbf{A}_{\mathrm{HCW}} =
-\begin{bmatrix}
-0&0&0&1&0&0\\
-0&0&0&0&1&0\\
-0&0&0&0&0&1\\
-3n^2&0&0&0&2n&0\\
-0&0&0&-2n&0&0\\
-0&0&-n^2&0&0&0
-\end{bmatrix},
-\qquad
-\mathbf{B} =
-\begin{bmatrix}
-\mathbf{0}_{3\times3}\\
-\mathbf{I}_{3\times3}
-\end{bmatrix}.
-\end{equation}
-
-Here,
-\begin{equation}
-    \mathbf{u}
-    =
-    \begin{bmatrix}
-        f_x & f_y & f_z
-    \end{bmatrix}^{T}
-\end{equation}
-represents the control acceleration vector.
-
-The effects of Earth's oblateness are incorporated through the second-degree zonal harmonic, $J_2$. The corresponding perturbing acceleration in the ECI frame is modeled as
-\begin{equation}
-\mathbf{a}_{J_2}
-=
-\frac{3\mu J_2 R_E^2}{2r^5}
-\begin{bmatrix}
-x\left(5\frac{z^2}{r^2}-1\right)\\
-y\left(5\frac{z^2}{r^2}-1\right)\\
-z\left(5\frac{z^2}{r^2}-3\right)
-\end{bmatrix},
-\end{equation}
-
-where $R_E$ is the Earth's mean radius and $r=\|\mathbf{r}\|$ is the spacecraft distance from the Earth's center.
-The $J_2$ perturbation is used to augment the nominal relative dynamics and provides a more realistic representation of the orbital environment than the idealized HCW model alone.
+where $\mathbf{u}=[f_x\ f_y\ f_z]^{T}$ is the chaser control acceleration in
+the LVLH frame. These assemble into the linear time-invariant form
+$\dot{\mathbf{x}}_{\mathrm{rel}}
+=\mathbf{A}_{\mathrm{HCW}}\mathbf{x}_{\mathrm{rel}}+\mathbf{B}\mathbf{u}$
+with $\mathbf{B}=[\mathbf{0}_{3\times3}\ \ \mathbf{I}_{3}]^{T}$, whose
+closed-form state transition is used by the guidance and control algorithms.
+A higher-fidelity numerical path is retained for comparison, adding the
+second-degree zonal harmonic $J_2$ to the two-body acceleration; it is not
+exercised by any result reported here, where the unmodelled disturbance is
+instead injected as a white acceleration on the true trajectory alone.
 
 \subsection{Target Attitude Dynamics}
-The target spacecraft is modeled as a rigid body with potentially tumbling motion. Its attitude is represented using a unit quaternion, while the angular velocity is expressed in the target body frame. The attitude state is therefore defined as
-\begin{equation}
-    \mathbf{x}_{\mathrm{att}}
-    =
-    \begin{bmatrix}
-        \mathbf{q} \\
-        \boldsymbol{\omega}
-    \end{bmatrix}
-    =
-    \begin{bmatrix}
-        q_0 & q_1 & q_2 & q_3 &
-        \omega_1 & \omega_2 & \omega_3
-    \end{bmatrix}^{T},
-\end{equation}
 
-where $\mathbf{q}=[q_0,q_1,q_2,q_3]^T$ is a scalar-first unit
-quaternion satisfying
-
-\begin{equation}
-    \mathbf{q}^{T}\mathbf{q}=1,
-\end{equation}
-
-and
-
-\begin{equation}
-    \boldsymbol{\omega}
-    =
-    \begin{bmatrix}
-        \omega_1 & \omega_2 & \omega_3
-    \end{bmatrix}^{T}
-\end{equation}
-
-is the body-frame angular velocity.
-The quaternion defines the rotation between the target body frame and the inertial frame. The corresponding direction cosine matrix is
-
-\begin{equation}
-\mathbf{C}(\mathbf{q}) =
-\begin{bmatrix}
-1-2(q_2^2+q_3^2) &
-2(q_1q_2-q_0q_3) &
-2(q_1q_3+q_0q_2)
-\\
-2(q_1q_2+q_0q_3) &
-1-2(q_1^2+q_3^2) &
-2(q_2q_3-q_0q_1)
-\\
-2(q_1q_3-q_0q_2) &
-2(q_2q_3+q_0q_1) &
-1-2(q_1^2+q_2^2)
-\end{bmatrix},
-\end{equation}
-
-such that a vector expressed in the body frame can be transformed to the inertial frame according to
-
-\begin{equation}
-    \mathbf{v}_{I}
-    =
-    \mathbf{C}(\mathbf{q})\mathbf{v}_{B}.
-\end{equation}
-
-The quaternion kinematics are governed by
-
+The target is a rigid body in potentially tumbling motion. Its quaternion
+gives the direction cosine matrix $\mathbf{C}(\mathbf{q})$ from the target
+body frame to the inertial frame, and the attitude evolves as
 \begin{equation}
     \dot{\mathbf{q}}
     =
-    \frac{1}{2}
-    \mathbf{\Xi}(\mathbf{q})
-    \boldsymbol{\omega},
-\end{equation}
-
-where
-
-\begin{equation}
-\mathbf{\Xi}(\mathbf{q}) =
-\begin{bmatrix}
--q_1 & -q_2 & -q_3 \\
- q_0 & -q_3 &  q_2 \\
- q_3 &  q_0 & -q_1 \\
--q_2 &  q_1 &  q_0
-\end{bmatrix}.
-\end{equation}
-
-The rotational dynamics are described by Euler's rigid-body equations,
-
-\begin{equation}
+    \tfrac{1}{2}\mathbf{\Xi}(\mathbf{q})\boldsymbol{\omega},
+    \qquad
     \mathbf{I}\dot{\boldsymbol{\omega}}
     =
     \boldsymbol{\tau}
-    -
-    \boldsymbol{\omega}
-    \times
-    (\mathbf{I}\boldsymbol{\omega}),
+    -\boldsymbol{\omega}\times(\mathbf{I}\boldsymbol{\omega}),
 \end{equation}
-
-where $\mathbf{I}$ is the target spacecraft inertia tensor and $\boldsymbol{\tau}$ is the external torque expressed in the body frame. For the torque-free tumbling scenarios considered in the target kinematics model,
-
-\begin{equation}
-    \boldsymbol{\tau}=\mathbf{0},
-\end{equation}
-
-giving
-
-\begin{equation}
-    \dot{\boldsymbol{\omega}}
-    =
-    -\mathbf{I}^{-1}
-    \left[
-        \boldsymbol{\omega}
-        \times
-        (\mathbf{I}\boldsymbol{\omega})
-    \right].
-\end{equation}
-
-The attitude state is numerically propagated using an adaptive high-order integration scheme. The implementation supports both DOP853 and RK45 integration, with DOP853 used as the high-accuracy default. Quaternion normalization is enforced after propagation to suppress numerical drift from the unit-quaternion constraint.
-
-For torque-free motion, the implementation additionally monitors the rotational kinetic energy
-
-\begin{equation}
-    T =
-    \frac{1}{2}
-    \boldsymbol{\omega}^{T}
-    \mathbf{I}
-    \boldsymbol{\omega},
-\end{equation}
-
-and the angular momentum
-
-\begin{equation}
-    \mathbf{H}_{B}
-    =
-    \mathbf{I}\boldsymbol{\omega}.
-\end{equation}
-
-The inertial-frame angular momentum is obtained as
-
-\begin{equation}
-    \mathbf{H}_{I}
-    =
-    \mathbf{C}(\mathbf{q})\mathbf{H}_{B}.
-\end{equation}
-
-For torque-free rigid-body motion, both the rotational kinetic energy and the magnitude of angular momentum should remain constant. These quantities are therefore used as numerical consistency checks for the attitude propagation.
+with $\mathbf{\Xi}(\mathbf{q})$ the quaternion kinematic matrix, $\mathbf{I}$
+the target inertia tensor and $\boldsymbol{\tau}$ the external body-frame
+torque, zero in the scenarios considered here. Propagation uses an adaptive
+high-order integrator with the quaternion renormalised each step. For
+torque-free motion the rotational kinetic energy
+$\tfrac{1}{2}\boldsymbol{\omega}^{T}\mathbf{I}\boldsymbol{\omega}$ and the
+inertial angular momentum
+$\mathbf{C}(\mathbf{q})\mathbf{I}\boldsymbol{\omega}$ are invariant, and are
+monitored as numerical consistency checks.
 
 \subsection{Camera Projection Model}
 
-The visual measurement model represents a monocular camera mounted on the
-chaser spacecraft and observing known structural landmarks on the target
-spacecraft. The target is modeled as a parametric Ariane 44L upper-stage
-geometry, from which a fixed set of analytically defined three-dimensional
-landmarks is selected. The landmark coordinates are known in the target
-body frame and remain constant throughout the simulation.
-
-Let
+The perception module models a monocular camera on the chaser observing
+fifteen analytically defined body-frame landmarks $\mathbf{P}_i^{b}$ on a
+parametric Ariane 44L upper stage, distributed over the nose, mid-body ring
+and nozzle, with the body-frame origin at the cylindrical centre and its
+$x$-axis along the symmetry axis. The camera sits at the chaser with no
+mounting rotation or lever arm, so the target attitude supplies the rotation
+$\mathbf{R}_{bt}\in SO(3)$ and the HCW relative position $\mathbf{r}$ the
+translation,
 \begin{equation}
-    \mathbf{P}_i^{b}
-    =
-    \begin{bmatrix}
-        X_i^{b} & Y_i^{b} & Z_i^{b}
-    \end{bmatrix}^{T}
-    \in \mathbb{R}^{3}
+    \mathbf{P}_i^{c} = \mathbf{R}_{bt}\mathbf{P}_i^{b} + \mathbf{r}.
 \end{equation}
-denote the position of the $i$-th landmark expressed in the target body
-frame. A total of 15 structural landmarks are used in the experiments.
-These consist of the nose point, nozzle-tip point, body-centre point, and
-four points each on the nozzle rim, mid-body ring, and nose ring.
-
-The target body frame is defined with its origin at the cylindrical body
-centre and its $x$-axis aligned with the longitudinal symmetry axis of
-the spacecraft. The landmark coordinates are therefore fixed with
-respect to the target and provide the known three-dimensional geometry
-required for pose estimation.
-
-The camera frame is modeled as coincident with the LVLH frame, with its
-origin located at the chaser spacecraft. No additional camera mounting
-rotation or translational lever-arm offset is included. Consequently, the
-target attitude directly defines the rotation from the target body frame
-to the camera frame, while the HCW relative position defines the
-translation.
-
-Let $\mathbf{R}_{bt}\in SO(3)$ denote the rotation matrix mapping vectors
-from the target body frame to the LVLH/camera frame, obtained from the
-target attitude quaternion. Let
-$\mathbf{r}\in\mathbb{R}^{3}$ denote the relative position of the target
-with respect to the chaser, expressed in the LVLH/camera frame. The
-three-dimensional landmark coordinates in the camera frame are then
-
+Landmarks are mapped to the image by the pinhole model, which defines the
+projection $\pi(\cdot)$,
 \begin{equation}
-    \mathbf{P}_i^{c}
-    =
-    \mathbf{R}_{bt}\mathbf{P}_i^{b}
-    +
-    \mathbf{r}.
-\end{equation}
-
-For a landmark
-$\mathbf{P}_i^{c}=[X_i^c,Y_i^c,Z_i^c]^T$ located in front of the camera,
-the normalized image coordinates are obtained through perspective
-projection:
-
-\begin{equation}
-    x_i =
-    \frac{X_i^c}{Z_i^c},
-    \qquad
-    y_i =
-    \frac{Y_i^c}{Z_i^c}.
-\end{equation}
-
-The camera is modeled using the standard pinhole intrinsic matrix
-
-\begin{equation}
-    \mathbf{K}
-    =
-    \begin{bmatrix}
-        f_x & 0 & c_x \\
-        0 & f_y & c_y \\
-        0 & 0 & 1
-    \end{bmatrix},
-\end{equation}
-
-where $f_x$ and $f_y$ are the focal lengths in pixels and
-$(c_x,c_y)$ is the principal point. For the rendezvous camera used in
-the simulations, the image resolution is $1024\times1024$ pixels with
-
-\begin{equation}
-    f_x=f_y=800~\mathrm{px},
-    \qquad
-    c_x=c_y=512~\mathrm{px}.
-\end{equation}
-
-The corresponding pixel coordinates are
-
-\begin{equation}
-    u_i = f_x\frac{X_i^c}{Z_i^c}+c_x,
-    \qquad
-    v_i = f_y\frac{Y_i^c}{Z_i^c}+c_y.
-\end{equation}
-
-Equivalently, the complete noiseless projection can be written in
-homogeneous coordinates as
-
-\begin{equation}
-    \lambda_i
-    \begin{bmatrix}
-        u_i\\
-        v_i\\
-        1
-    \end{bmatrix}
-    =
-    \mathbf{K}
-    \begin{bmatrix}
-        \mathbf{R}_{bt} & \mathbf{r}
-    \end{bmatrix}
-    \begin{bmatrix}
-        \mathbf{P}_i^b\\
-        1
-    \end{bmatrix},
-\end{equation}
-
-where $\lambda_i=Z_i^c$ is the projective scale factor.
-
-To model realistic visual measurement uncertainty, zero-mean Gaussian
-pixel noise is added independently to the projected landmark
-coordinates. The measured image point is therefore modeled as
-
-\begin{equation}
-    \tilde{\mathbf{p}}_i
-    =
     \mathbf{p}_i
-    +
-    \boldsymbol{\eta}_i,
-    \qquad
-    \boldsymbol{\eta}_i
-    \sim
-    \mathcal{N}
-    \left(
-        \mathbf{0},
-        \sigma_{\mathrm{px}}^2\mathbf{I}_2
-    \right),
-\end{equation}
-
-where
-
-\begin{equation}
-    \mathbf{p}_i =
+    =
+    \begin{bmatrix} u_i \\ v_i \end{bmatrix}
+    =
     \begin{bmatrix}
-        u_i\\
-        v_i
-    \end{bmatrix}
+        f_x X_i^c/Z_i^c + c_x \\ f_y Y_i^c/Z_i^c + c_y
+    \end{bmatrix},
+    \quad
+    \tilde{\mathbf{p}}_i = \mathbf{p}_i + \boldsymbol{\eta}_i,
 \end{equation}
-
-and $\sigma_{\mathrm{px}}$ denotes the standard deviation of the
-pixel measurement noise. Unless otherwise specified, the end-to-end
-experiments use $\sigma_{\mathrm{px}}=1.5$ pixels.
-
-The camera model supports the Brown--Conrady radial and tangential
-distortion model; however, lens distortion is disabled in the
-experiments presented in this work by setting
-
-\begin{equation}
-    k_1=k_2=p_1=p_2=0.
-\end{equation}
-
-Thus, the experimental image formation model consists of ideal
-perspective projection followed by additive Gaussian pixel
-measurement noise.
-
-A projected landmark is considered visible only when it lies in front
-of the camera and within the image boundaries. Hence, the visibility
-conditions are
-
-\begin{equation}
-    Z_i^c > 0,
-\end{equation}
-
-\begin{equation}
-    0 \leq u_i < W,
-    \qquad
-    0 \leq v_i < H,
-\end{equation}
-
-where $W$ and $H$ denote the image width and height, respectively.
-
-The resulting set of noisy two-dimensional landmark measurements
-
-\begin{equation}
-    \left\{
-        \tilde{\mathbf{p}}_i
-        \leftrightarrow
-        \mathbf{P}_i^b
-    \right\}_{i=1}^{N}
-\end{equation}
-
-forms the input to the subsequent PnP pose-estimation stage.
+for focal lengths $f_x,f_y$ and principal point $(c_x,c_y)$, with zero-mean
+Gaussian pixel noise
+$\boldsymbol{\eta}_i\sim\mathcal{N}(\mathbf{0},\sigma_{\mathrm{px}}^2\mathbf{I}_2)$
+added independently to each landmark. The model supports the Brown--Conrady
+radial and tangential distortion polynomial, disabled here with
+$k_1=k_2=p_1=p_2=0$. A landmark is visible only when
+$Z_i^c>0$ and $(u_i,v_i)$ falls inside the $W\times H$ image; the surviving
+correspondences $\{\tilde{\mathbf{p}}_i \leftrightarrow
+\mathbf{P}_i^b\}_{i=1}^{N}$ are the input to the pose-estimation stage.
+Controlled correspondence outliers can also be injected to test that stage
+under degraded observations. Camera and noise values are listed in
+Table~\ref{tab:experimental_parameters}.
 
 \subsection{Perspective-$n$-Point Pose Estimation}
 
-The relative pose of the target spacecraft is estimated from
-correspondences between the known three-dimensional target landmarks
-and their measured two-dimensional image coordinates. Given a set of
-$N$ correspondences
-\begin{equation}
-    \left\{
-    \mathbf{P}_i^b,\tilde{\mathbf{p}}_i
-    \right\}_{i=1}^{N},
-\end{equation}
-the objective is to recover the rotation
-$\mathbf{R}_{bt}\in SO(3)$ and translation
-$\mathbf{t}\in\mathbb{R}^{3}$ satisfying
-\begin{equation}
-    \mathbf{P}_i^c
-    =
-    \mathbf{R}_{bt}\mathbf{P}_i^b+\mathbf{t},
-\end{equation}
-such that the perspective projections of the transformed landmarks are
-consistent with the measured image coordinates.
-
-The pose-estimation pipeline uses the Efficient Perspective-$n$-Point
-(EPnP) algorithm \cite{lepetit2009epnp} to obtain an efficient initial pose estimate. EPnP
-requires at least four three-dimensional--two-dimensional
-correspondences and represents the target points using four virtual
-control points. Each target landmark is expressed as an affine
-combination of the control points,
-
-\begin{equation}
-    \mathbf{P}_i^b
-    =
-    \sum_{j=0}^{3}
-    \alpha_{ij}\mathbf{C}_j^b,
-    \qquad
-    \sum_{j=0}^{3}\alpha_{ij}=1,
-\end{equation}
-
-where $\mathbf{C}_j^b$ denotes the $j$-th control point and
-$\alpha_{ij}$ is its barycentric coefficient for landmark $i$.
-
-The corresponding landmark in the camera frame can consequently be
-written as
-
-\begin{equation}
-    \mathbf{P}_i^c
-    =
-    \sum_{j=0}^{3}
-    \alpha_{ij}\mathbf{C}_j^c.
-\end{equation}
-
-Using the perspective projection model from Section~III-D, the image
-coordinates impose two linear constraints on the coordinates of the
-camera-frame control points for every correspondence. These constraints
-are assembled into the homogeneous linear system
-
-\begin{equation}
-    \mathbf{M}\mathbf{x}=\mathbf{0},
-\end{equation}
-
-where
-
-\begin{equation}
-    \mathbf{x}
-    =
-    \begin{bmatrix}
-    (\mathbf{C}_0^c)^T &
-    (\mathbf{C}_1^c)^T &
-    (\mathbf{C}_2^c)^T &
-    (\mathbf{C}_3^c)^T
-    \end{bmatrix}^{T}
-    \in\mathbb{R}^{12}.
-\end{equation}
-
-For the $i$-th correspondence, the two rows contributing to
-$\mathbf{M}$ are constructed from the camera intrinsics and the
-barycentric coefficients. Specifically, for the measured pixel
-coordinates $(u_i,v_i)$,
-
-\begin{equation}
-\begin{aligned}
-\sum_{j=0}^{3}
-\alpha_{ij}
-\left[
-f_x C_{jx}^c
-+
-(c_x-u_i)C_{jz}^c
-\right]
-&=0,\\
-\sum_{j=0}^{3}
-\alpha_{ij}
-\left[
-f_y C_{jy}^c
-+
-(c_y-v_i)C_{jz}^c
-\right]
-&=0.
-\end{aligned}
-\end{equation}
-
-The null space of $\mathbf{M}$ is obtained using singular value
-decomposition. The camera-frame control points are then recovered by
-solving the EPnP distance constraints. The implementation evaluates
-multiple null-space solutions and selects the solution giving the
-lowest mean reprojection error while satisfying the positive-depth
-chirality constraint.
-
-Once the control points have been recovered in the camera frame, the
-full landmark configuration is reconstructed using the barycentric
-coefficients. The rotation and translation are then recovered through
-a rigid-body absolute-orientation solution. The resulting pose
-$\left(\hat{\mathbf{R}}_{bt},\hat{\mathbf{t}}\right)$ satisfies
-
-\begin{equation}
-    \hat{\mathbf{P}}_i^c
-    =
-    \hat{\mathbf{R}}_{bt}\mathbf{P}_i^b
-    +
-    \hat{\mathbf{t}}.
-\end{equation}
-
-The quality of the recovered pose is evaluated using the reprojection
-error. For landmark $i$, the reprojection error is
-
+Given $N$ correspondences, the pose-estimation stage recovers
+$\mathbf{R}_{bt}\in SO(3)$ and $\mathbf{t}\in\mathbb{R}^{3}$ for which
+$\mathbf{P}_i^c=\mathbf{R}_{bt}\mathbf{P}_i^b+\mathbf{t}$ reprojects
+consistently onto the measured image points. The initial estimate uses the
+Efficient Perspective-$n$-Point (EPnP) algorithm \cite{lepetit2009epnp},
+which requires at least four correspondences, writes each landmark as an
+affine combination of four virtual control points, and solves the resulting
+homogeneous system $\mathbf{M}\mathbf{x}=\mathbf{0}$ through the null space
+of $\mathbf{M}$ by singular value decomposition
+(Section~\ref{sec:epnp_gn}). Among the candidate null-space solutions the one
+with the lowest mean reprojection error satisfying the positive-depth
+chirality constraint is selected, the landmark configuration reconstructed
+from the barycentric coefficients, and the pose
+$(\hat{\mathbf{R}}_{bt},\hat{\mathbf{t}})$ recovered by a rigid-body
+absolute-orientation solution, whose quality is the reprojection error
 \begin{equation}
     e_i^{\mathrm{rep}}
     =
     \left\|
     \tilde{\mathbf{p}}_i
     -
-    \pi
-    \left(
-    \hat{\mathbf{R}}_{bt}\mathbf{P}_i^b
-    +
-    \hat{\mathbf{t}}
-    \right)
+    \pi\left(\hat{\mathbf{R}}_{bt}\mathbf{P}_i^b+\hat{\mathbf{t}}\right)
     \right\|_2,
-\end{equation}
-
-where $\pi(\cdot)$ denotes the perspective projection defined in
-Section~III-D. The mean reprojection error is then
-
-\begin{equation}
+    \qquad
     \bar e_{\mathrm{rep}}
     =
-    \frac{1}{N}
-    \sum_{i=1}^{N}
-    e_i^{\mathrm{rep}}.
+    \frac{1}{N}\sum_{i=1}^{N} e_i^{\mathrm{rep}} .
 \end{equation}
+An optional nonlinear refinement of this cost is applied on top of the EPnP
+solution; because a global rotation-vector parameterisation is singular at
+$\theta=\pi$, it is formulated on the $SO(3)$ manifold
+(Section~\ref{sec:pnp_manifold}) and is not used in the closed-loop pipeline.
 
 \subsubsection{RANSAC-Based Outlier Rejection}
 
-To improve robustness to incorrect image correspondences, a
-RANSAC-based \cite{fischler1981ransac} pose-estimation stage is
-implemented around the EPnP solver, following the locally optimized
-RANSAC strategy of Chum and Matas~\cite{chum2003loransac}. At each
-RANSAC iteration, a minimal subset of correspondences is randomly
-selected and an EPnP pose hypothesis is generated. The hypothesis is
-then evaluated against all available correspondences using their
-reprojection errors.
-
-A correspondence is classified as an inlier when
-
+To tolerate incorrect correspondences the EPnP solver is wrapped in a RANSAC
+stage \cite{fischler1981ransac} following the locally optimised strategy of
+Chum and Matas~\cite{chum2003loransac}: a minimal subset is sampled, an EPnP
+hypothesis generated, and correspondences with
+$e_i^{\mathrm{rep}}<\tau_{\mathrm{rep}}$ counted as inliers. The largest
+consensus set wins, with mean inlier reprojection error as the tie-break, and
+the pose is refitted on its inliers. Sampling terminates adaptively once
 \begin{equation}
-    e_i^{\mathrm{rep}} < \tau_{\mathrm{rep}},
+    k \;\geq\; \frac{\log(1-p)}{\log\!\left(1-w^{s}\right)},
 \end{equation}
-
-where $\tau_{\mathrm{rep}}$ is the reprojection-error threshold. The
-hypothesis containing the largest number of inliers is selected, with
-mean inlier reprojection error used as a tie-breaking criterion.
-
-After the best hypothesis has been selected, the pose is re-estimated
-using all identified inliers. This local refitting step is repeated for
-a limited number of iterations to improve the final pose estimate.
-The resulting estimator therefore follows the sequence
-
-\begin{equation}
-\begin{split}
-    \text{Random sampling} \rightarrow \text{EPnP hypothesis} \\
-    \rightarrow \text{inlier classification} \rightarrow \text{inlier refitting}.
-\end{split}
-\end{equation}
-The RANSAC implementation uses a maximum of 200 iterations and an
-inlier threshold defined in image pixels. Adaptive termination is
-employed based on the observed inlier ratio and the desired confidence
-level.
-
-\subsection{Nonlinear Pose Refinement}
-
-The EPnP or RANSAC-EPnP estimate provides an initial solution that is
-subsequently refined by nonlinear minimization of the reprojection
-error. The pose is parameterized by a three-dimensional Rodrigues
-rotation vector $\boldsymbol{\rho}\in\mathbb{R}^{3}$ and a translation
-vector $\mathbf{t}\in\mathbb{R}^{3}$,
-
-\begin{equation}
-    \boldsymbol{\xi}
-    =
-    \begin{bmatrix}
-        \boldsymbol{\rho}\\
-        \mathbf{t}
-    \end{bmatrix}
-    \in\mathbb{R}^{6}.
-\end{equation}
-
-The rotation matrix is obtained from the Rodrigues vector using
-Rodrigues' formula,
-
-\begin{equation}
-    \mathbf{R}(\boldsymbol{\rho})
-    =
-    \mathbf{I}
-    +
-    \sin\theta\,\mathbf{K}
-    +
-    (1-\cos\theta)\mathbf{K}^{2},
-\end{equation}
-
-where
-
-\begin{equation}
-    \theta=\|\boldsymbol{\rho}\|,
-    \qquad
-    \mathbf{k}
-    =
-    \frac{\boldsymbol{\rho}}{\theta},
-\end{equation}
-
-and $\mathbf{K}$ is the skew-symmetric matrix associated with
-$\mathbf{k}$.
-
-For a given pose, the predicted image point is
-
-\begin{equation}
-    \hat{\mathbf{p}}_i
-    =
-    \pi
-    \left(
-        \mathbf{R}(\boldsymbol{\rho})
-        \mathbf{P}_i^b
-        +
-        \mathbf{t}
-    \right).
-\end{equation}
-
-The optimization minimizes the weighted sum of squared reprojection
-residuals,
-
-\begin{equation}
-    E(\boldsymbol{\xi})
-    =
-    \frac{1}{N}
-    \sum_{i=1}^{N}
-    w_i
-    \left\|
-        \hat{\mathbf{p}}_i
-        -
-        \tilde{\mathbf{p}}_i
-    \right\|_2^2,
-\end{equation}
-
-where $w_i$ is an optional correspondence weight. In the absence of
-explicit weighting, $w_i=1$ for all measurements.
-
-At each iteration, the residual vector is linearized about the current
-estimate,
-
-\begin{equation}
-    \mathbf{e}(\boldsymbol{\xi}+\delta\boldsymbol{\xi})
-    \approx
-    \mathbf{e}(\boldsymbol{\xi})
-    +
-    \mathbf{J}\delta\boldsymbol{\xi},
-\end{equation}
-
-where $\mathbf{J}\in\mathbb{R}^{2N\times6}$ is the Jacobian of the
-reprojection residual with respect to the six pose parameters.
-
-For a camera-frame point
-$\mathbf{P}_i^c=[X_i^c,Y_i^c,Z_i^c]^T$, the perspective-projection
-Jacobian is
-
-\begin{equation}
-\frac{\partial\pi}{\partial\mathbf{P}_i^c}
-=
-\begin{bmatrix}
-\dfrac{f_x}{Z_i^c} &
-0 &
--\dfrac{f_xX_i^c}{(Z_i^c)^2}
-\\[8pt]
-0 &
-\dfrac{f_y}{Z_i^c} &
--\dfrac{f_yY_i^c}{(Z_i^c)^2}
-\end{bmatrix}.
-\end{equation}
-
-The pose Jacobian is consequently formed as
-
-\begin{equation}
-    \mathbf{J}_i
-    =
-    \frac{\partial\pi}{\partial\mathbf{P}_i^c}
-    \begin{bmatrix}
-    \dfrac{\partial\mathbf{P}_i^c}
-    {\partial\boldsymbol{\rho}}
-    &
-    \dfrac{\partial\mathbf{P}_i^c}
-    {\partial\mathbf{t}}
-    \end{bmatrix},
-\end{equation}
-
-with
-
-\begin{equation}
-    \frac{\partial\mathbf{P}_i^c}
-    {\partial\mathbf{t}}
-    =
-    \mathbf{I}_3.
-\end{equation}
-
-The rotation derivative is evaluated analytically from the Rodrigues
-parameterization.
-
-The pose update is obtained using a damped Gauss--Newton
-(Levenberg--Marquardt) step,
-
-\begin{equation}
-    \delta\boldsymbol{\xi}
-    =
-    -
-    \left(
-    \mathbf{J}^{T}\mathbf{J}
-    +
-    \lambda\mathbf{I}
-    \right)^{-1}
-    \mathbf{J}^{T}\mathbf{e},
-\end{equation}
-
-where $\lambda$ is the damping parameter. When the proposed update
-reduces the reprojection cost, the update is accepted and the damping
-factor is decreased. Otherwise, the update is rejected and the damping
-factor is increased.
-
-The optimization terminates when the norm of the six-dimensional pose
-update falls below the specified convergence tolerance or when the
-maximum number of iterations is reached.
+where $w$ is the observed inlier ratio, $s$ the minimal sample size and $p$
+the desired confidence level, subject to the iteration budget and inlier
+threshold of Table~\ref{tab:experimental_parameters}.
 
 \subsection{State Estimation}
 
-The pose estimates obtained from the visual navigation pipeline provide
-instantaneous measurements of the target relative position and attitude.
-Since these measurements are affected by image noise and pose-estimation
-uncertainty, a recursive state estimator is used to obtain a temporally
-consistent estimate of the relative translational and rotational state.
-
-Two nonlinear filtering approaches are implemented and compared:
-a Multiplicative Extended Kalman Filter (MEKF) \cite{markley2003}
-and an Error-State Unscented Kalman Filter (UKF) \cite{julier2004}.
-Both estimators operate on the same
-nominal spacecraft state and use the same process and measurement
-models, allowing the effect of the filtering formulation to be studied
-independently.
-
-The nominal navigation state is defined as
-
+Pose solutions are instantaneous and corrupted by image noise and pose-solver
+error, so a recursive estimator supplies a temporally consistent relative
+state. A Multiplicative Extended Kalman Filter (MEKF) \cite{markley2003} and
+an error-state Unscented Kalman Filter (UKF) \cite{julier2004} are compared,
+sharing nominal state, process and measurement models so that the filtering
+formulation is the only difference. The nominal navigation state is
 \begin{equation}
     \mathbf{x}
     =
     \begin{bmatrix}
-        \mathbf{r}^{T} &
-        \mathbf{v}^{T} &
-        \mathbf{q}^{T} &
-        \boldsymbol{\omega}^{T}
+        \mathbf{r}^{T} & \mathbf{v}^{T} &
+        \mathbf{q}^{T} & \boldsymbol{\omega}^{T}
     \end{bmatrix}^{T},
-\end{equation}
-
-where $\mathbf{r}\in\mathbb{R}^{3}$ and
-$\mathbf{v}\in\mathbb{R}^{3}$ denote the target relative position and
-velocity expressed in the LVLH frame, $\mathbf{q}$ is the target
-attitude quaternion, and
-$\boldsymbol{\omega}\in\mathbb{R}^{3}$ is the target body-frame angular
-velocity.
-
-The attitude quaternion is constrained to unit norm,
-
-\begin{equation}
-    \|\mathbf{q}\|=1.
-\end{equation}
-
-For the estimator implementation, the quaternion follows the
-scalar-last convention,
-
-\begin{equation}
-    \mathbf{q}
-    =
-    \begin{bmatrix}
-        q_x & q_y & q_z & q_w
-    \end{bmatrix}^{T}.
-\end{equation}
-
-Because direct additive perturbations of a quaternion can violate its
-unit-norm constraint, the covariance is maintained in a
-12-dimensional error-state space. The error state is defined as
-
-\begin{equation}
+    \quad
     \delta\mathbf{x}
     =
     \begin{bmatrix}
-        \delta\mathbf{r}^{T} &
-        \delta\mathbf{v}^{T} &
-        \delta\boldsymbol{\alpha}^{T} &
-        \delta\boldsymbol{\omega}^{T}
+        \delta\mathbf{r}^{T} & \delta\mathbf{v}^{T} &
+        \delta\boldsymbol{\alpha}^{T} & \delta\boldsymbol{\omega}^{T}
     \end{bmatrix}^{T},
 \end{equation}
-
-where $\delta\boldsymbol{\alpha}\in\mathbb{R}^{3}$ represents the
-small-angle attitude error.
-
-The nominal state is propagated according to the nonlinear spacecraft
-dynamics,
-
+with $\|\mathbf{q}\|=1$. Because additive quaternion perturbations violate
+that constraint, the covariance is carried in the 12-dimensional error state,
+$\delta\boldsymbol{\alpha}$ being the small-angle attitude error. The nominal
+state is propagated through the nonlinear dynamics and the covariance through
+the error-state transition matrix $\mathbf{F}_k$,
 \begin{equation}
-    \mathbf{x}_{k+1}^{-}
-    =
-    f(\mathbf{x}_{k}^{+},\Delta t),
-\end{equation}
-
-where $\Delta t$ is the estimator sampling interval and the superscripts
-$-$ and $+$ denote the predicted and corrected states, respectively.
-
-The covariance prediction for the error-state EKF is given by
-
-\begin{equation}
+    \mathbf{x}_{k+1}^{-} = f(\mathbf{x}_{k}^{+},\Delta t),
+    \qquad
     \mathbf{P}_{k+1}^{-}
     =
-    \mathbf{F}_{k}
-    \mathbf{P}_{k}^{+}
-    \mathbf{F}_{k}^{T}
-    +
-    \mathbf{Q}_{k},
+    \mathbf{F}_{k}\mathbf{P}_{k}^{+}\mathbf{F}_{k}^{T}+\mathbf{Q}_{k},
 \end{equation}
+where $\Delta t$ is the sampling interval and $\mathbf{Q}_k$ is
+acceleration-driven as derived in Section~\ref{sec:process_noise}.
 
-where $\mathbf{F}_{k}$ is the discrete-time error-state transition
-matrix and $\mathbf{Q}_{k}$ is the process-noise covariance.
-
-The measurement supplied to the estimator consists of relative
-translation and target attitude. In the controlled filter-isolation
-experiment, the measurement is generated directly from the true
-simulated state with additive Gaussian noise,
-
+The measurement supplied to the estimator is a relative translation and a
+target attitude. In the filter-isolation experiment it is generated directly
+from the true state with additive Gaussian noise,
 \begin{equation}
     \mathbf{z}_{k}
     =
     \begin{bmatrix}
-        \mathbf{r}_{k}^{\mathrm{true}}
-        +
-        \boldsymbol{\nu}_{r,k}
-        \\
+        \mathbf{r}_{k}^{\mathrm{true}}\\
         \boldsymbol{\rho}_{k}^{\mathrm{true}}
-        +
-        \boldsymbol{\nu}_{\rho,k}
+    \end{bmatrix}
+    +
+    \begin{bmatrix}
+        \boldsymbol{\nu}_{r,k}\\ \boldsymbol{\nu}_{\rho,k}
     \end{bmatrix},
-\end{equation}
-
-where $\boldsymbol{\rho}$ is the Rodrigues rotation vector associated
-with the target attitude. The measurement noises are modeled as
-
-\begin{equation}
-    \boldsymbol{\nu}_{r,k}
-    \sim
-    \mathcal{N}
-    \left(
-        \mathbf{0},
-        \sigma_{\mathrm{pos}}^{2}\mathbf{I}_{3}
-    \right),
-\end{equation}
-
-and
-
-\begin{equation}
-    \boldsymbol{\nu}_{\rho,k}
-    \sim
-    \mathcal{N}
-    \left(
-        \mathbf{0},
-        \sigma_{\mathrm{att}}^{2}\mathbf{I}_{3}
-    \right).
-\end{equation}
-
-Consequently, the measurement covariance is
-
-\begin{equation}
+    \qquad
     \mathbf{R}
     =
     \begin{bmatrix}
         \sigma_{\mathrm{pos}}^{2}\mathbf{I}_{3} & \mathbf{0}\\
         \mathbf{0} & \sigma_{\mathrm{att}}^{2}\mathbf{I}_{3}
-    \end{bmatrix}.
+    \end{bmatrix},
 \end{equation}
-
-For the filter-isolation experiment, the measurement noise parameters
-are fixed at
-
-\begin{equation}
-    \sigma_{\mathrm{pos}}=0.5~\mathrm{m},
-    \qquad
-    \sigma_{\mathrm{att}}=0.05~\mathrm{rad}.
-\end{equation}
-
-This measurement model is deliberately separated from the pixel-level
-vision model introduced in Section~III-D. In Experiment D, the same
-synthetic measurement sequence is supplied to both filters in order to
-isolate the relative behavior of the MEKF and UKF. Therefore, the
-Experiment D measurements do not include the non-Gaussian and
-state-dependent errors that can arise from EPnP/RANSAC pose estimation.
-The effect of the complete visual measurement pipeline is evaluated
-separately in the end-to-end experiments.
+where $\boldsymbol{\rho}$ is the rotation vector of the target attitude and
+the noise standard deviations are those of
+Table~\ref{tab:experimental_parameters}. The complete vision-to-estimation
+pipeline is evaluated separately in Section~\ref{sec:results}.
 
 \subsubsection{Multiplicative Extended Kalman Filter}
 
-The MEKF uses the nonlinear nominal state for propagation while
-maintaining the covariance in the reduced error-state space. The
-predicted measurement is
-
-\begin{equation}
-    \hat{\mathbf{z}}_{k}
-    =
-    h(\mathbf{x}_{k}^{-}),
-\end{equation}
-
-and the innovation is
-
-\begin{equation}
-    \mathbf{y}_{k}
-    =
-    \mathbf{z}_{k}
-    -
-    \hat{\mathbf{z}}_{k}.
-\end{equation}
-
-The measurement model is linearized about the predicted state as
-
-\begin{equation}
-    \mathbf{H}_{k}
-    =
-    \frac{\partial h}
-    {\partial\delta\mathbf{x}}
-    \bigg|_{\mathbf{x}_{k}^{-}}.
-\end{equation}
-
-The innovation covariance is
-
-\begin{equation}
-    \mathbf{S}_{k}
-    =
-    \mathbf{H}_{k}
-    \mathbf{P}_{k}^{-}
-    \mathbf{H}_{k}^{T}
-    +
-    \mathbf{R}_{k}.
-\end{equation}
-
-The Kalman gain is then
-
-\begin{equation}
-    \mathbf{K}_{k}
-    =
-    \mathbf{P}_{k}^{-}
-    \mathbf{H}_{k}^{T}
-    \mathbf{S}_{k}^{-1},
-\end{equation}
-
-and the error-state correction is
-
-\begin{equation}
-    \delta\mathbf{x}_{k}
-    =
-    \mathbf{K}_{k}\mathbf{y}_{k}.
-\end{equation}
-
-The translational and angular-velocity errors are applied additively.
-The attitude error is instead converted into a small rotation
-quaternion,
-
-\begin{equation}
-    \delta\mathbf{q}_{k}
-    =
-    \operatorname{Exp}
-    \left(
-        \delta\boldsymbol{\alpha}_{k}
-    \right),
-\end{equation}
-
-and applied multiplicatively to the nominal attitude,
-
+With predicted measurement $\hat{\mathbf{z}}_{k}=h(\mathbf{x}_{k}^{-})$,
+innovation $\mathbf{y}_{k}=\mathbf{z}_{k}-\hat{\mathbf{z}}_{k}$ and
+innovation covariance $\mathbf{S}_{k}=\mathbf{H}_{k}\mathbf{P}_{k}^{-}
+\mathbf{H}_{k}^{T}+\mathbf{R}_{k}$, the gain and error-state correction are
+$\mathbf{K}_{k}=\mathbf{P}_{k}^{-}\mathbf{H}_{k}^{T}\mathbf{S}_{k}^{-1}$ and
+$\delta\mathbf{x}_{k}=\mathbf{K}_{k}\mathbf{y}_{k}$, the attitude component of $\mathbf{y}_k$ being formed multiplicatively on
+$SO(3)$, which makes $\mathbf{H}_k$ exact and constant
+(Section~\ref{sec:mekf_residual}). Translational and angular-velocity
+corrections are applied additively, while the attitude correction is applied
+multiplicatively to the nominal attitude,
 \begin{equation}
     \mathbf{q}_{k}^{+}
     =
     \operatorname{norm}
     \left(
-        \delta\mathbf{q}_{k}
+        \operatorname{Exp}(\delta\boldsymbol{\alpha}_{k})
         \otimes
         \mathbf{q}_{k}^{-}
-    \right).
+    \right),
 \end{equation}
-
-The covariance is updated using the Joseph form,
-
+and the covariance is updated in Joseph form,
 \begin{equation}
     \mathbf{P}_{k}^{+}
     =
@@ -1051,215 +271,297 @@ The covariance is updated using the Joseph form,
     \mathbf{P}_{k}^{-}
     (\mathbf{I}-\mathbf{K}_{k}\mathbf{H}_{k})^{T}
     +
-    \mathbf{K}_{k}\mathbf{R}_{k}\mathbf{K}_{k}^{T}.
+    \mathbf{K}_{k}\mathbf{R}_{k}\mathbf{K}_{k}^{T},
 \end{equation}
-
-The covariance matrix is symmetrized numerically after the prediction
-and update operations to limit the effects of floating-point
-asymmetry.
-
-\subsubsection{Measurement Gating}
-
-A Mahalanobis-distance gate is used to reject measurements that are
-statistically inconsistent with the predicted state. The squared
-normalized innovation is
-
-\begin{equation}
-    d_k^2
-    =
-    \mathbf{y}_{k}^{T}
-    \mathbf{S}_{k}^{-1}
-    \mathbf{y}_{k}.
-\end{equation}
-
-A measurement is accepted when
-
-\begin{equation}
-    d_k^2 \leq \gamma,
-\end{equation}
-
-where $\gamma$ is the selected chi-square threshold. Otherwise, the
-measurement update is rejected and the predicted state is retained.
-
-For the six-dimensional measurement used in this work, the implemented
-threshold is
-
-\begin{equation}
-    \gamma=16.812.
-\end{equation}
-
-The attitude component of the innovation is represented using the
-principal rotation-vector representation before the Mahalanobis
-distance is evaluated.
+symmetrised after prediction and update. Measurements statistically
+inconsistent with the prediction are rejected by a Mahalanobis gate on the
+squared normalised innovation,
+$d_k^2=\mathbf{y}_{k}^{T}\mathbf{S}_{k}^{-1}\mathbf{y}_{k}\leq\gamma$, with
+$\gamma$ the chi-square threshold of
+Table~\ref{tab:experimental_parameters}; a failing measurement is discarded
+and the predicted state retained. The attitude part of the innovation is
+expressed as a principal rotation vector before the distance is evaluated.
 
 \subsubsection{Unscented Kalman Filter}
 
-The UKF provides a nonlinear alternative to the MEKF by propagating a
-set of sigma points through the nonlinear dynamics and measurement
-models. The filter uses the same 12-dimensional error-state
-representation as the MEKF.
-
-For an error-state dimension $n_x=12$, the scaled unscented transform
-defines
-
+The UKF replaces the analytic linearisation by propagating sigma points
+through the nonlinear models, using the same 12-dimensional error state. For
+$n_x=12$ the scaled unscented transform sets
 \begin{equation}
-    \lambda
-    =
-    \alpha^2(n_x+\kappa)-n_x.
-\end{equation}
-
-The sigma points are generated as
-
-\begin{equation}
-    \boldsymbol{\chi}_0=\mathbf{0},
-\end{equation}
-
-\begin{equation}
-    \boldsymbol{\chi}_{i}
-    =
-    \left[
-    \sqrt{(n_x+\lambda)\mathbf{P}}
-    \right]_i,
-\end{equation}
-
-and
-
-\begin{equation}
-    \boldsymbol{\chi}_{i+n_x}
-    =
-    -
-    \left[
-    \sqrt{(n_x+\lambda)\mathbf{P}}
-    \right]_i,
-\end{equation}
-
-for $i=1,\ldots,n_x$.
-
-The corresponding weights are
-
-\begin{equation}
-    W_0^{(m)}
-    =
-    \frac{\lambda}{n_x+\lambda},
-\end{equation}
-
-\begin{equation}
-    W_0^{(c)}
-    =
-    \frac{\lambda}{n_x+\lambda}
-    +1-\alpha^2+\beta,
-\end{equation}
-
-and
-
-\begin{equation}
-    W_i^{(m)}
-    =
-    W_i^{(c)}
-    =
-    \frac{1}{2(n_x+\lambda)},
-    \qquad i>0.
-\end{equation}
-
-Each error-state sigma point is applied to the nominal state and
-propagated through the nonlinear relative translational and attitude
-dynamics. Attitude perturbations are applied multiplicatively so that
-the quaternion unit-norm constraint is preserved.
-
-The propagated sigma points are then transformed through the
-measurement model to obtain the predicted measurement distribution.
-The state-measurement cross-covariance is
-
-\begin{equation}
-    \mathbf{P}_{xz}
-    =
-    \sum_i
-    W_i^{(c)}
-    \delta\mathbf{x}_i
-    \delta\mathbf{z}_i^{T},
-\end{equation}
-
-while the measurement covariance is
-
-\begin{equation}
-    \mathbf{P}_{zz}
-    =
-    \sum_i
-    W_i^{(c)}
-    \delta\mathbf{z}_i
-    \delta\mathbf{z}_i^{T}
-    +
-    \mathbf{R}.
-\end{equation}
-
-The UKF gain is consequently
-
-\begin{equation}
-    \mathbf{K}
-    =
-    \mathbf{P}_{xz}
-    \mathbf{P}_{zz}^{-1},
-\end{equation}
-
-and the error-state correction is
-
-\begin{equation}
-    \delta\mathbf{x}
-    =
-    \mathbf{K}
-    (\mathbf{z}-\hat{\mathbf{z}}).
-\end{equation}
-
-The attitude correction is applied multiplicatively to the nominal
-quaternion in the same manner as the MEKF.
-
-The implemented UKF uses the scaled unscented-transform parameters
-
-\begin{equation}
-    \alpha=10^{-3},
+    \lambda = \alpha^2(n_x+\kappa)-n_x,
     \qquad
-    \beta=2,
-    \qquad
-    \kappa=0.
+    W_0^{(m)} = \frac{\lambda}{n_x+\lambda},
 \end{equation}
+so that both the sigma-point spread and the centre weight are controlled by
+$\alpha$; the sigma points and the remaining weights
+follow the standard scaled transform \cite{julier2004}. Each error-state sigma
+point is applied to the nominal state --- attitude perturbations
+multiplicatively, preserving the unit-norm constraint --- and propagated
+through the relative translational and attitude dynamics, giving the
+cross-covariance $\mathbf{P}_{xz}$ and the innovation covariance
+$\mathbf{P}_{zz}$, from which
+$\mathbf{K}=\mathbf{P}_{xz}\mathbf{P}_{zz}^{-1}$ and
+$\delta\mathbf{x}=\mathbf{K}(\mathbf{z}-\hat{\mathbf{z}})$, the attitude
+correction again applied multiplicatively. The implemented filter uses
+$\alpha=0.5$, $\beta=2$ and $\kappa=0$.
 
-\subsubsection{Filter-Isolation Study}
+\subsection{Guidance and Control}
 
-The MEKF and UKF are first compared under a controlled measurement
-scenario in order to isolate the effect of the filtering algorithm
-from the characteristics of the visual pose-estimation pipeline. A
-common simulated trajectory is generated and both filters receive the
-same noisy pose measurements at each estimation step.
+The guidance-and-control module drives the chaser with either a Linear
+Quadratic Regulator (LQR) or a receding-horizon Model Predictive Controller
+(MPC), both acting on the HCW relative dynamics. The MPC imposes an explicit
+thrust constraint and, during the terminal phase, an approach-cone constraint
+formulated as a softened second-order cone (Section~\ref{sec:cone}). The
+commanded acceleration $\mathbf{u}$ updates the chaser state and produces the
+next camera observation, closing the perception--navigation--control loop.
 
-Specifically, the measurement supplied to each filter is generated
-directly from the ground-truth state according to
+\subsection{Refinement of the EPnP Control-Point Coefficients}
+\label{sec:epnp_gn}
 
+Writing the $N$ world points as affine combinations of control points,
+$\mathbf{P}_i = \sum_{j} \alpha_{ij}\,\mathbf{c}_j$ with
+$\sum_j \alpha_{ij} = 1$, the projection equations stack into
+$\mathbf{M}\mathbf{x} = \mathbf{0}$, where $\mathbf{x}$ collects the control
+points in the camera frame. The solution lies in the null space of
+$\mathbf{M}$,
 \begin{equation}
-    \mathbf{z}_k
-    =
-    \begin{bmatrix}
-        \mathbf{r}_k^{\mathrm{true}}\\
-        \boldsymbol{\rho}_k^{\mathrm{true}}
-    \end{bmatrix}
-    +
-    \begin{bmatrix}
-        \boldsymbol{\nu}_{r,k}\\
-        \boldsymbol{\nu}_{\rho,k}
-    \end{bmatrix}.
+\mathbf{x} = \sum_{k=1}^{n} \beta_k \mathbf{v}_k ,
+\label{eq:epnp_null}
+\end{equation}
+and the coefficients $\beta_k$ are fixed by requiring that the
+inter-control-point distances be preserved:
+\begin{equation}
+\bigl\| \textstyle\sum_k \beta_k (\mathbf{v}_k^{[i]} - \mathbf{v}_k^{[j]}) \bigr\|^2
+= \| \mathbf{c}_i - \mathbf{c}_j \|^2 ,
+\qquad i < j .
+\label{eq:epnp_dist}
 \end{equation}
 
-The position and attitude noise standard deviations are
-$0.5$ m and $0.05$ rad, respectively, and the estimator is evaluated
-for 300 steps with a sampling interval of $\Delta t=10$ s.
+Equation~\eqref{eq:epnp_dist} is quadratic in $\boldsymbol{\beta}$.
+Linearising in the products $b_{kl} = \beta_k \beta_l$ gives a linear system
+$\mathbf{L}\mathbf{b} = \boldsymbol{\rho}$ whose least-squares solution yields
+an initial $\boldsymbol{\beta}$ by relinearisation,
+$\beta_1 = \sqrt{|b_{11}|}$ and $\beta_k = b_{1k}/\beta_1$. This is an
+\emph{initialisation}, not the answer, and treating it as the answer costs
+roughly a factor of four in accuracy (Sec.~\ref{sec:res_pose}). We refine
+$\boldsymbol{\beta}$ by Gauss--Newton directly on \eqref{eq:epnp_dist}. With
+$\mathbf{D}_{ij}$ the matrix whose $k$-th column is
+$\mathbf{v}_k^{[i]} - \mathbf{v}_k^{[j]}$ and
+$\mathbf{d}_{ij} = \mathbf{D}_{ij}\boldsymbol{\beta}$, the residual and its
+Jacobian are
+\begin{align}
+f_{ij}(\boldsymbol{\beta}) &= \mathbf{d}_{ij}^{\top}\mathbf{d}_{ij}
+                              - \|\mathbf{c}_i - \mathbf{c}_j\|^2 ,
+\label{eq:epnp_resid}\\
+\frac{\partial f_{ij}}{\partial \beta_m}
+  &= 2\, \mathbf{d}_{ij}^{\top} \mathbf{D}_{ij}\,\mathbf{e}_m .
+\label{eq:epnp_jac}
+\end{align}
+Ten iterations of $\boldsymbol{\beta} \leftarrow \boldsymbol{\beta} +
+\boldsymbol{\delta}$, with $\boldsymbol{\delta}$ the least-squares solution of
+$\mathbf{J}\boldsymbol{\delta} = -\mathbf{f}$, suffice in every case tested.
 
-This configuration is intentionally not an end-to-end camera
-simulation. In particular, the measurement is not generated by the
-camera projection, pixel-noise, RANSAC, or EPnP stages. The purpose of
-this experiment is to provide a controlled comparison in which both
-filters receive statistically identical measurements. The resulting
-comparison therefore characterizes the filtering stage itself rather
-than the combined performance of the complete visual navigation
-pipeline.
+\paragraph{The coplanar case.}
+The control points are the centroid plus the principal axes of the point
+cloud, scaled by the corresponding singular values. When the cloud is
+coplanar the third singular value vanishes, so a fourth control point
+coincides with the centroid, the barycentric system becomes singular, and
+three columns of $\mathbf{M}$ vanish identically --- giving $\mathbf{M}$ a
+four-dimensional null space for algebraic rather than geometric reasons. The
+planar configuration must therefore be detected, from $s_3 / s_1 < \epsilon$,
+and parameterised with \emph{three} control points, so that
+$\mathbf{x} \in \mathbb{R}^{9}$ and $\mathbf{M}$ is $2N \times 9$.
+Approximately 3\% of random six-point subsets of the target's keypoint set
+are exactly coplanar, so this is not an edge case.
 
-The complete vision-to-estimation pipeline is evaluated separately in
-the end-to-end experiments described in Section~\ref{sec:results}.
+\subsection{Pose Refinement on the $SO(3)$ Manifold}
+\label{sec:pnp_manifold}
+
+The refinement stage minimises the reprojection cost
+\begin{equation}
+E(\mathbf{R}, \mathbf{t}) = \sum_{i} w_i \,
+\bigl\| \tilde{\mathbf{p}}_i - \pi(\mathbf{R}\mathbf{P}_i + \mathbf{t}) \bigr\|^2 .
+\label{eq:lm_cost}
+\end{equation}
+Parameterising $\mathbf{R} = \exp([\mathbf{r}]_\times)$ by a \emph{global}
+rotation vector is convenient but singular at $\|\mathbf{r}\| = \pi$, where the
+derivative of the exponential map is unbounded --- not a remote possibility
+here, since a camera whose boresight is aligned with a world axis produces
+$\operatorname{tr}(\mathbf{R}) = -1$ exactly, i.e.\ $\theta = \pi$, and such
+poses are the natural fixtures for an on-axis approach. We therefore carry
+$\mathbf{R}$ as a matrix and optimise over a local increment. Using a
+left-multiplicative update,
+\begin{equation}
+\mathbf{R} \leftarrow \exp([\boldsymbol{\delta\omega}]_\times)\,\mathbf{R},
+\qquad
+\mathbf{t} \leftarrow \mathbf{t} + \boldsymbol{\delta t} ,
+\label{eq:lm_update}
+\end{equation}
+and noting that $\exp([\boldsymbol{\delta}]_\times)\mathbf{v} \approx
+\mathbf{v} - [\mathbf{v}]_\times \boldsymbol{\delta}$, the Jacobian blocks at
+$\boldsymbol{\delta} = \mathbf{0}$ are
+\begin{equation}
+\frac{\partial \mathbf{P}^c_i}{\partial \boldsymbol{\delta\omega}}
+  = -[\mathbf{R}\mathbf{P}_i]_\times ,
+\qquad
+\frac{\partial \mathbf{P}^c_i}{\partial \boldsymbol{\delta t}} = \mathbf{I}_3 ,
+\label{eq:lm_jac}
+\end{equation}
+so that with the perspective Jacobian
+\begin{equation}
+\frac{\partial \pi}{\partial \mathbf{P}^c}
+= \begin{bmatrix}
+f_x / Z & 0 & -f_x X / Z^2 \\
+0 & f_y / Z & -f_y Y / Z^2
+\end{bmatrix}
+\label{eq:proj_jac}
+\end{equation}
+the stacked Jacobian is
+$\mathbf{J}_i = (\partial \pi / \partial \mathbf{P}^c)\,
+[-[\mathbf{R}\mathbf{P}_i]_\times \;\; \mathbf{I}_3]$.
+Because $\boldsymbol{\delta\omega}$ is always near zero, the local
+parameterisation is well conditioned wherever the optimiser is, and the
+singularity cannot be reached. Two further conditions keep the iteration
+honest. The residual and the Jacobian must be evaluated at the same point ---
+clamping $Z$ in one and not the other lets Levenberg--Marquardt accept steps
+that lower a cost it is not actually computing, and the translation then
+diverges without bound while the reported cost stays finite. And chirality
+must be enforced: any pose placing a weighted point at or behind the camera
+plane is assigned infinite cost and rejected, so failure is visible rather
+than silent.
+
+\subsection{Multiplicative Attitude Residual}
+\label{sec:mekf_residual}
+
+Position enters the residual as a difference in the usual way; attitude
+cannot, and the reason is worth setting out because the naive form is
+superficially reasonable. With $\hat{\mathbf{q}}$ the filter's estimate,
+encoding both attitudes as global rotation vectors and subtracting,
+$\boldsymbol{\nu}_{att} = \log(\mathbf{q}_{meas}) - \log(\hat{\mathbf{q}})$,
+fails at $\theta = \pi$: two attitudes separated by an arbitrarily small
+rotation, one either side of $\pi$, map to nearly antipodal rotation vectors,
+so a vanishing attitude error produces a residual of magnitude $2\pi$. The
+linearised residual is then meaningless, and the Jacobian condition number
+grows without bound as $\theta \to \pi$. The residual must instead be formed
+on the group and expressed in the tangent space at the estimate,
+\begin{equation}
+\boldsymbol{\delta\alpha}
+  = \log\!\bigl( \mathbf{q}_{meas} \otimes \hat{\mathbf{q}}^{-1} \bigr) ,
+\label{eq:att_residual}
+\end{equation}
+where $\log(\cdot)$ returns the rotation vector of its argument and the sign of
+the relative quaternion is chosen so that its scalar part is non-negative,
+selecting the short rotation. This is exact for every attitude, and it has a
+second benefit. Because the error state is defined by the same
+left-multiplicative perturbation,
+$\mathbf{q} = \exp(\tfrac{1}{2}\boldsymbol{\delta\alpha}) \otimes
+\hat{\mathbf{q}}$, the residual \emph{is} the attitude error state to first
+order, and the measurement Jacobian becomes exact and constant:
+\begin{equation}
+\mathbf{H} =
+\begin{bmatrix}
+\mathbf{I}_3 & \mathbf{0} & \mathbf{0} & \mathbf{0} \\
+\mathbf{0} & \mathbf{0} & \mathbf{I}_3 & \mathbf{0}
+\end{bmatrix} .
+\label{eq:H_exact}
+\end{equation}
+No finite differencing is required, and $\mathbf{R}_{att} = \sigma_{att}^2
+\mathbf{I}_3$ becomes a genuine tangent-space covariance rather than an
+approximation. The measurement noise must be injected on the same side for
+this to hold: a physical attitude perturbation is
+$\mathbf{q}_{meas} = \exp(\tfrac{1}{2}\boldsymbol{\eta}) \otimes \mathbf{q}$
+with $\boldsymbol{\eta} \sim \mathcal{N}(\mathbf{0},
+\sigma_{att}^2\mathbf{I}_3)$.
+
+\subsection{Acceleration-Driven Process Noise}
+\label{sec:process_noise}
+
+The dominant unmodelled effects on the relative translation --- differential
+$J_2$, differential drag, thruster execution error --- act as an
+\emph{acceleration}, so the process noise must drive position and velocity
+jointly. Treating the disturbance as white acceleration of density
+$\sigma_a$ over a step $\Delta t$ gives the standard kinematic block
+\begin{equation}
+\begin{bmatrix}
+\mathbf{Q}_{rr} & \mathbf{Q}_{rv} \\
+\mathbf{Q}_{vr} & \mathbf{Q}_{vv}
+\end{bmatrix}
+= \sigma_a^2
+\begin{bmatrix}
+\tfrac{1}{3}\Delta t^3 \mathbf{I}_3 & \tfrac{1}{2}\Delta t^2 \mathbf{I}_3 \\
+\tfrac{1}{2}\Delta t^2 \mathbf{I}_3 & \Delta t\, \mathbf{I}_3
+\end{bmatrix},
+\label{eq:Q_kin}
+\end{equation}
+with the same structure on the attitude and rate block for an angular
+acceleration density. The off-diagonal terms are not optional: position and
+velocity errors driven by a common acceleration are correlated, and a diagonal
+$\mathbf{Q}$ asserts that they are not, which weakens the information a
+position measurement carries about velocity. A diagonal alternative that
+models position as an independent random walk is worse still --- a position
+noise of $0.05$~m per step contributes
+$\mathbf{Q}_{rr} = 2.5 \times 10^{-3}$~m$^2$, roughly three hundred times the
+$8.3 \times 10^{-6}$~m$^2$ that a physically plausible
+$5 \times 10^{-4}$~m/s$^2$ disturbance produces over a one-second step. The
+filter is then needlessly conservative, and its $\mathbf{Q}$ describes a
+disturbance that is not present in the truth, so the consistency statistics of
+Eq.~\eqref{eq:nis} become uninformative.
+
+\subsection{Approach Corridor as a Second-Order Cone}
+\label{sec:cone}
+
+The terminal approach is confined to a cone of half-angle $\theta_c$ about the
+$+x$ (radial) approach axis. For a predicted position
+$\mathbf{r}_k = [x_k,\ y_k,\ z_k]^{\top}$ the constraint is
+\begin{equation}
+\sqrt{y_k^2 + z_k^2} \;\le\; x_k \tan\theta_c ,
+\qquad k = 0,\dots,N-1 .
+\label{eq:cone}
+\end{equation}
+Three properties of \eqref{eq:cone} matter and are each easy to lose. It is a
+\emph{cone}, not a wedge: both transverse components appear, and constraining
+$|y_k|$ alone leaves the cross-track axis free. It is \emph{signed}: the
+right-hand side must be non-negative, so \eqref{eq:cone} implies
+$x_k \ge 0$, whereas replacing $x_k$ by $|x_k|$ mirrors the corridor into
+$x < 0$ and is satisfied by a chaser sitting behind the target. And the
+constrained quantity is the predicted state
+$\mathbf{X}(\mathbf{U}) = \mathbf{S}_x \mathbf{e} + \mathbf{S}_u \mathbf{U}$;
+evaluating the radius on the free response $\mathbf{S}_x\mathbf{e}$ makes the
+right-hand side independent of the decision variable, and the constraint
+ceases to constrain anything. Written for a nonlinear-programming solver,
+\eqref{eq:cone} becomes
+$g_k(\mathbf{U}) \ge 0$ with
+\begin{equation}
+g_k(\mathbf{U}) = \tan\theta_c \; x_k(\mathbf{U})
+   - \sqrt{y_k(\mathbf{U})^2 + z_k(\mathbf{U})^2 + \varepsilon^2},
+\label{eq:cone_g}
+\end{equation}
+where $\varepsilon$ (here $10^{-6}$~m) keeps $g_k$ differentiable on the axis
+at the cost of a marginally conservative constraint. The gradient is
+\begin{equation}
+\nabla_{\mathbf{U}} g_k = \tan\theta_c \, \mathbf{S}_u^{x,k}
+ - \frac{y_k \mathbf{S}_u^{y,k} + z_k \mathbf{S}_u^{z,k}}
+        {\sqrt{y_k^2 + z_k^2 + \varepsilon^2}} ,
+\label{eq:cone_grad}
+\end{equation}
+with $\mathbf{S}_u^{x,k}$ the row of $\mathbf{S}_u$ selecting $x_k$.
+
+Imposed as a hard constraint, \eqref{eq:cone} destroys recursive feasibility:
+once the chaser lies outside the cone there may be no admissible input
+returning the first predicted state to it, and the quadratic program is
+infeasible. Since an infeasible solve is what produces a silent zero-thrust
+command, we soften the corridor with slack $s_k \ge 0$ under a linear penalty,
+\begin{equation}
+\min_{\mathbf{U},\,\mathbf{s}} \;
+\tfrac{1}{2}\mathbf{U}^{\top}\mathbf{H}\mathbf{U} + \mathbf{f}^{\top}\mathbf{U}
++ \rho \sum_{k} s_k
+\quad \text{s.t.} \quad g_k(\mathbf{U}) + s_k \ge 0 ,
+\label{eq:cone_soft}
+\end{equation}
+which is always feasible and drives $s_k \to 0$ whenever the hard constraint
+can be met. The corridor solve is judged on the quantity it exists to reduce,
+$\sum_k \max(0, -g_k)$, rather than on the solver's own convergence flag, and
+is attempted only when the box-constrained optimum already violates
+\eqref{eq:cone} --- an active-set shortcut that leaves the solution unchanged
+when the corridor is inactive and reduces the per-step cost by two orders of
+magnitude.
