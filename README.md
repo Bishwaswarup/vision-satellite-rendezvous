@@ -168,7 +168,7 @@ simulation/
   dualview.py            camera feed beside an external 3-D view
   montecarlo.py          dispersed Monte Carlo campaign driver
 
-experiments/             experiment_A ... experiment_F - the paper's figures
+experiments/             experiment_A ... experiment_G - the paper's figures and tables
 tests/                   175 unit tests
 reproduce/               rerun everything and check every number quoted in the paper
 notebooks/phase7_demo.py Phase-7 walkthrough figures
@@ -190,14 +190,14 @@ that rather than against itself.
 | J2 chief propagator | total energy and L_z conserved, 3 orbits | 3.9e-11 |
 | Quaternion library | vs `scipy.spatial.transform`, 200 random | 6.7e-16 |
 | Torque-free attitude | inertial **H** *vector* constant, 600 s | 2.6e-10 |
-| EPnP | vs `cv2.SOLVEPNP_EPNP`, non-planar, sigma = 1 px | within 1.2x |
+| EPnP | vs `cv2.SOLVEPNP_EPNP` (OpenCV 5.0), non-planar, sigma = 1 px | within 1.4x |
 | EPnP planar | coplanar point sets, noiseless | 0.0000 deg |
-| LM refinement | vs `cv2.solvePnPRefineLM` | identical to 4 dp |
+| LM refinement | vs `cv2.solvePnPRefineLM`, 8 noise levels | within 0.002 deg, 0.03 mm |
 | LM Jacobian | vs finite differences | 5e-9 relative |
 | MEKF Jacobian | analytic vs finite differences | 1.4e-8 |
 | **MEKF consistency** | **mean NIS over 3600 updates (n_z = 6)** | **6.044, CI [5.887, 6.113]** |
 | LQR | DARE residual; J(u) = x0' P x0 | 2e-14; exact |
-| MPC | unconstrained MPC vs infinite-horizon LQR | 4.8e-7 |
+| MPC | unconstrained MPC (exact BVLS QP solve) vs infinite-horizon LQR | 1.1e-11 |
 | MPC cone | constraint Jacobian vs finite differences | 1e-9 |
 
 ### Closed-loop performance
@@ -286,12 +286,22 @@ every other experiment runs at 400 km.
 
 ```bash
 bash setup.sh                         # once
-bash reproduce/rerun_all.sh           # tests + experiments A-F, ~15 min (JOBS=8 for more cores)
+bash reproduce/rerun_all.sh           # tests, experiments A-G and both checkers, ~30 min (JOBS=8 for more cores)
 .venv/bin/python reproduce/determinism_check.py   # optional, ~1 min
+.venv/bin/python reproduce/verify_extra_claims.py  # numbers the experiments do not print, ~5 min
+.venv/bin/python reproduce/check_mpc_solver.py     # MPC formulation and solver accuracy, ~1 min
 ```
 
-`rerun_all.sh` backs up `outputs/`, reruns the unit tests and all six experiments
-(Monte Carlo: 100 trials per configuration, 100 per noise level), and then
+`verify_extra_claims.py` recomputes the claims that no experiment script prints:
+the 12-seed closed-loop table, filter consistency (NIS) and its ablations, the
+OpenCV cross-checks, the unsaturated LQR demand, the fixed-trajectory noise
+ablation and the untuned-LQR comparison. It needs `opencv-python-headless` for the
+OpenCV comparisons.
+
+`rerun_all.sh` backs up `outputs/`, reruns the unit tests and experiments A-G
+(Monte Carlo: 100 trials per configuration and per noise level; Experiment G adds
+the minimum-correspondence sweep, the availability-matched dropout test and the
+RANSAC-threshold study), the MPC solver check and the extra-claims check, and then
 `check_claims.py` compares about 200 numbers quoted in the paper with the fresh output
 and writes `reproduce/claims_report.txt`. The figures, the per-trial Monte Carlo
 records (`outputs/mc_*.csv`) and the generated tables (`outputs/mc_tables.tex`)
@@ -341,7 +351,7 @@ defect it guards and confirming that it fails.
 Released under the [MIT License](LICENSE).
 
 The paper, *Vision-Based Closed-Loop Spacecraft Rendezvous: Measurement Availability
-as the Binding Constraint* (B. Nayak), is under review. A preprint is available on
+as a Limiting Constraint* (B. Nayak), is under review. A preprint is available on
 Zenodo: https://doi.org/10.5281/zenodo.22062059. Citation metadata for both the
 software and the paper is in [`CITATION.cff`](CITATION.cff) (GitHub's "Cite this
 repository" button reads it).

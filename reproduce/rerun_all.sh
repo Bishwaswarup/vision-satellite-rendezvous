@@ -4,7 +4,7 @@
 # paper quotes against the fresh output.
 #
 #   bash setup.sh                         # once: creates .venv/
-#   bash reproduce/rerun_all.sh           # default: 4 parallel jobs, ~15 min
+#   bash reproduce/rerun_all.sh           # default: 4 parallel jobs, ~30 min
 #   JOBS=8 bash reproduce/rerun_all.sh    # more cores = faster
 #
 # outputs/ is copied to outputs_before_rerun_<timestamp>/ first, so the archived
@@ -60,6 +60,13 @@ step "Experiment D" "$LOG/D.log" "$PY" experiments/experiment_D.py
 step "Experiment E" "$LOG/E.log" "$PY" experiments/experiment_E.py
 step "Experiment F (Monte Carlo, the long one)" "$LOG/F.log" \
      "$PY" experiments/experiment_F.py --jobs "$JOBS"
+step "Experiment G (sensitivity + causality)" "$LOG/G.log" \
+     "$PY" experiments/experiment_G.py --jobs "$JOBS"
+step "Experiment G3 (RANSAC threshold)" "$LOG/G3.log" \
+     "$PY" experiments/experiment_G.py --g3 --jobs "$JOBS"
+step "MPC solver check" "$LOG/mpc.log" "$PY" "$HERE/check_mpc_solver.py"
+step "Extra claims (needs opencv-python-headless)" "$LOG/extra.log" \
+     "$PY" "$HERE/verify_extra_claims.py" --jobs "$JOBS"
 
 echo "All runs finished in $(( (SECONDS - T0) / 60 )) min $(( (SECONDS - T0) % 60 )) s"
 echo

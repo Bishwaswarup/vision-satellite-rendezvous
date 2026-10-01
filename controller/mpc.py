@@ -54,7 +54,8 @@ Reference
 """
 
 import numpy as np
-from scipy.optimize import minimize, Bounds
+from scipy.optimize import minimize, Bounds, lsq_linear
+from scipy.linalg import solve_triangular
 from .lqr import LQRController, hcw_discrete, N_ORBITAL_DEFAULT
 
 
@@ -79,6 +80,14 @@ class MPCController:
 
     FEAS_TOL = 1e-6      # [m] / [m/s²] tolerance when certifying a solution
     max_iter = 300       # SLSQP iteration budget
+    # Solver for the box-constrained QP (no corridor).  'bvls' solves it
+    # exactly as a bounded least-squares problem on the Cholesky factor of H;
+    # 'slsqp' is the original iterative solve, kept only to reproduce earlier
+    # results.  H is ill-conditioned (cond ~ 3e7 for the Experiment E
+    # weights) and SLSQP then stops with 'Optimization terminated
+    # successfully' up to ~0.4 m/s^2 from the optimum, which with inactive
+    # constraints is the LQR law -- see reproduce/check_mpc_solver.py.
+    qp_solver = 'bvls'
     CONE_EPS = 1e-6      # [m] smoothing so the cone is differentiable on axis
 
     def __init__(self,
@@ -199,6 +208,7 @@ class MPCController:
         SuTQbar = self.S_u.T @ Q_bar
         self._H  = SuTQbar @ self.S_u + R_bar      # (N·nu × N·nu)
         self._H  = 0.5 * (self._H + self._H.T)     # symmetrise
+        self._L  = np.linalg.cholesky(self._H)     # H = L L^T, for the exact box QP
         self._SuTQbarSx = SuTQbar @ self.S_x        # (N·nu × nx)
 
     # ── Control ───────────────────────────────────────────────────────────────
@@ -256,7 +266,10 @@ class MPCController:
         box = Bounds(np.full(nU, -self.u_max), np.full(nU, self.u_max))
         U0  = self._warm_start_U()
 
-        U_opt, ok = self._solve_qp(objective, gradient, U0, box, [], nU=nU)
+        if self.qp_solver == 'bvls':
+            U_opt, ok = self._solve_box_qp(f)
+        else:
+            U_opt, ok = self._solve_qp(objective, gradient, U0, box, [], nU=nU)
         status = 'ok' if ok else 'lqr_fallback'
 
         if cone is not None and ok:
@@ -305,6 +318,23 @@ class MPCController:
         u = U_opt[:self.nu]                             # first control action
         self.delta_v += np.linalg.norm(u) * self.dt
         return u
+
+    def _solve_box_qp(self, f):
+        """
+        Exact solution of  min 1/2 U'HU + f'U  s.t. |U_i| <= u_max.
+
+        With H = L L', the cost equals 1/2 ||L'U + L^{-1} f||^2 up to a
+        constant, so the problem is a bounded linear least-squares problem,
+        which BVLS solves to machine precision in a finite number of steps.
+        """
+        nU = len(f)
+        A = self._L.T
+        b = -solve_triangular(self._L, f, lower=True)
+        r = lsq_linear(A, b, bounds=(np.full(nU, -self.u_max), np.full(nU, self.u_max)),
+                       method='bvls', tol=1e-12)
+        U = np.asarray(r.x, dtype=float)
+        ok = bool(np.all(np.isfinite(U)) and np.max(np.abs(U)) <= self.u_max + self.FEAS_TOL)
+        return U, ok
 
     def _solve_cone_qp(self, cone, f, H, sc, nU, U_ws):
         """

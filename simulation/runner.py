@@ -111,6 +111,18 @@ class SimConfig:
     camera_up:        np.ndarray = field(
         default_factory=lambda: np.array([0., 0., 1.]))   # LVLH cross-track
     min_visible_kpts: int = 6       # below this the pose solve is not attempted
+    # RANSAC hypothesis sample size.  EPnP admits four correspondences, but
+    # minimal four-point samples are frequently degenerate, so six is the
+    # default; experiment_G sweeps it together with `min_visible_kpts`.
+    ransac_n_min: int = 6
+
+    # Availability-matched dropout for the DIRECT-measurement path only
+    # (use_vision=False): ``(bin_edges, availability)`` with one availability
+    # per range bin.  Each step's measurement is withheld with probability
+    # 1 - availability(true range).  Used by experiment_G to test whether
+    # measurement availability alone explains the vision pipeline's failures.
+    # Drawn from a separate generator, so the noise sequence is unchanged.
+    dropout_profile: Optional[tuple] = None
 
     # Docking
     dock_r_thr: float = 1.0         # [m]  docking distance
@@ -203,6 +215,9 @@ class RendezvousSimulator:
     def __init__(self, cfg: SimConfig = None, rng_seed: int = 42):
         self.cfg = cfg or SimConfig()
         self.rng = np.random.default_rng(rng_seed)
+        # Independent stream for availability-matched dropout (experiment_G);
+        # never touched otherwise, so default runs are unchanged.
+        self.rng_drop = np.random.default_rng([int(rng_seed) & 0xFFFFFFFF, 0xD7])
 
         # Build subsystems
         self.cam    = rendezvous_camera()
@@ -350,6 +365,7 @@ class RendezvousSimulator:
                 threshold_px=cfg.ransac_thr,
                 max_iter=cfg.ransac_iter,
                 seed=int(self.rng.integers(0, 2**31 - 1)),
+                n_min=cfg.ransac_n_min,
             )
             ok = meta.get('success', False)
             if not ok or R_est is None:
@@ -470,6 +486,11 @@ class RendezvousSimulator:
                 q_meas = quat_mult(dq, qt_new)
                 repr_e[k] = 0.0
                 ok = True
+                if cfg.dropout_profile is not None:
+                    edges, avail = cfg.dropout_profile
+                    b = int(np.clip(np.digitize(np.linalg.norm(rt_new), edges) - 1,
+                                    0, len(avail) - 1))
+                    ok = bool(self.rng_drop.uniform() < avail[b])
             meas_used[k] = ok
 
             # ── 4. EKF predict, then update only if a measurement arrived ─

@@ -192,11 +192,16 @@ def solve_pnp_ransac(pts3d       : np.ndarray,
                      K           : np.ndarray,
                      threshold_px: float = 3.0,
                      max_iter    : int   = 200,
-                     seed        : int   = None) -> tuple:
+                     seed        : int   = None,
+                     n_min       : int   = 6) -> tuple:
     """
     One-shot RANSAC-EPnP wrapper.
 
+    `n_min` is the hypothesis sample size (and the minimum number of
+    correspondences accepted); see :class:`RANSACSolver`.
+
     Returns (R, t, inlier_mask, meta).
     """
-    solver = RANSACSolver(threshold_px=threshold_px, max_iter=max_iter)
+    solver = RANSACSolver(threshold_px=threshold_px, max_iter=max_iter,
+                          n_min=n_min)
     return solver.solve(pts3d, pts2d, K, seed=seed)

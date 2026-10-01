@@ -197,13 +197,13 @@ style_ax(ax_u, '‖u‖  [m s⁻²]', 'Control magnitude')
 ax_u.plot(t_ctrl, umag_l, color=C1, linewidth=1.3, label='LQR')
 ax_u.plot(t_ctrl, umag_m, color=C2, linewidth=1.3, linestyle='--', label='MPC')
 ax_u.axhline(U_MAX, color=MUTED, linewidth=0.8, linestyle=':', alpha=0.8,
-             label=f'u_max={U_MAX}')
+             label=f'u_max={U_MAX} per axis')
 ax_u.set_xlim(t_vec[0], t_vec[-1])
 ax_u.legend(fontsize=8, facecolor=PANEL, edgecolor=MUTED,
             labelcolor=TEXT, loc='upper right')
 
 # ── cumulative Δv ─────────────────────────────────────────────────────────────
-style_ax(ax_dv, 'Cumulative Δv  [m/s]', 'Propellant budget',
+style_ax(ax_dv, 'Cumulative Δv  [m/s]', 'Cumulative Δv',
          xlabel='Time  [min]')
 ax_dv.plot(t_ctrl, dv_l, color=C1, linewidth=1.5, label='LQR')
 ax_dv.plot(t_ctrl, dv_m, color=C2, linewidth=1.5, linestyle='--', label='MPC')

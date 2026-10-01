@@ -360,7 +360,8 @@ def default_process_noise(dt, pos_std=0.1, vel_std=0.01,
     ``accel_std`` omitted — the legacy diagonal random walk, kept so existing
     callers behave as before.  It is not physical: an independent position
     random walk of `pos_std` = 0.05 m contributes Q_rr = 2.5e-3 m^2 per step,
-    roughly 300x the 8.3e-6 m^2 an actual 5e-4 m/s^2 disturbance produces, so
+    roughly 30 000x the 8.3e-8 m^2 an actual 5e-4 m/s^2 disturbance produces
+    over a 1 s step (sigma_a^2 dt^3 / 3), so
     the filter is made needlessly conservative and velocity is only weakly
     informed by position measurements.
     """

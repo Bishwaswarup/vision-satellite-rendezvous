@@ -192,16 +192,16 @@ def check_E(logs):
     m = re.search(r'Total Δv \[m/s\]\s+' + NUM + r'\s+' + NUM, t)
     lq, mp = (fnum(m.group(1)), fnum(m.group(2))) if m else (None, None)
     judge('Exp E (LQR vs MPC)', 'LQR total delta-v [m/s]', 16.83, lq, 0.005)
-    judge('Exp E (LQR vs MPC)', 'MPC total delta-v [m/s]', 5.00, mp, 0.005)
+    judge('Exp E (LQR vs MPC)', 'MPC total delta-v [m/s]', 10.15, mp, 0.005)
     if lq and mp:
-        flag('Exp E (text)', 'MPC saves 70 % delta-v', rhalf(100 * (lq - mp) / lq) == 70,
-             '70 %', f'{100*(lq-mp)/lq:.1f} %')
+        flag('Exp E (text)', 'MPC saves 40 % delta-v', rhalf(100 * (lq - mp) / lq) == 40,
+             '40 %', f'{100*(lq-mp)/lq:.1f} %')
     m = re.search(r'LQR closed-loop stable\s*:\s*(\w+)', t)
     flag('Exp E', 'LQR closed loop stable', bool(m) and m.group(1) == 'True', 'True',
          m.group(1) if m else 'missing')
     m = re.search(r'Time per step \[ms\]\s+' + NUM + r'\s+' + NUM, t)
     if m:
-        info('Exp E', 'MPC time per step [ms]', '0.26', f'{fnum(m.group(2)):.2f}')
+        info('Exp E', 'MPC time per step [ms]', '0.53', f'{fnum(m.group(2)):.2f}')
 
 
 TAB_RX = re.compile(r'^(.+?) & (\d+) & \$([\d.]+)\$ \[([\d.]+),\\,([\d.]+)\] & '
@@ -307,6 +307,51 @@ def check_F(logs, outputs):
               ref, dr.get(band), 0.05)
 
 
+G1_PAPER = {4: [100, 100, 100, 100, 99.3, 100, 65.7, 29.8, 16.6],
+            5: [100, 100, 100, 100, 96.6, 90.3, 43.5, 18.3, 6.1],
+            6: [100, 100, 100, 97.7, 84.8, 69.6, 28.0, 8.9, 1.7]}
+G1_BINS = ['10-50', '8-10', '6-8', '5-6', '4-5', '3-4', '2-3', '1-2', '0-1']
+G2_PAPER = [(1.5, 'vision + MEKF', 100, 33.3), (1.5, 'direct + MEKF', 100, 0.0),
+            (1.5, 'direct + MEKF, availability-matched dropout', 100, 45.2),
+            (4.0, 'vision + MEKF', 85, 55.4), (4.0, 'direct + MEKF', 100, 0.0),
+            (4.0, 'direct + MEKF, availability-matched dropout', 77, 78.9)]
+G3_PAPER = [(1.5, 3.0, 100, 33.3), (4.0, 3.0, 85, 55.4), (4.0, 6.0, 92, 38.4), (4.0, 12.0, 94, 34.2)]
+
+
+def check_G(outputs):
+    p = outputs / 'expG_nmin.csv'
+    if p.exists():
+        rows = list(csv.DictReader(p.open()))
+        for nmin, ref in G1_PAPER.items():
+            got = {f"{int(float(r['range_lo']))}-{int(float(r['range_hi']))}": 100 * float(r['A'])
+                   for r in rows if int(r['n_min']) == nmin}
+            for b, v in zip(G1_BINS, ref):
+                judge('Exp G1 (Table nmin)', f'N_min={nmin}, {b} m: availability %', v, got.get(b), 0.05)
+    else:
+        flag('Exp G1', 'expG_nmin.csv present', False, 'present', 'missing')
+    p = outputs / 'expG_causality.csv'
+    if p.exists():
+        rows = list(csv.DictReader(p.open()))
+        for sig, cfg, dk, dr in G2_PAPER:
+            r = next((r for r in rows if float(r['sigma']) == sig and r['config'] == cfg), None)
+            flag('Exp G2 (Table causality)', f'{sig} px, {cfg}: docked', bool(r) and int(r['docked']) == dk,
+                 f'{dk}/100', f"{r['docked']}/{r['n']}" if r else 'missing')
+            judge('Exp G2 (Table causality)', f'{sig} px, {cfg}: dropout %', dr, float(r['dropout']) if r else None, 0.05)
+    else:
+        flag('Exp G2', 'expG_causality.csv present', False, 'present', 'missing')
+    p = outputs / 'expG3_threshold.csv'
+    if p.exists():
+        rows = list(csv.DictReader(p.open()))
+        for sig, thr, dk, dr in G3_PAPER:
+            r = next((r for r in rows if float(r['sigma']) == sig and float(r['threshold_px']) == thr), None)
+            flag('Exp G3 (Table threshold)', f'{sig} px, threshold {thr:g} px: docked', bool(r) and int(r['docked']) == dk,
+                 f'{dk}/100', f"{r['docked']}/{r['n']}" if r else 'missing')
+            judge('Exp G3 (Table threshold)', f'{sig} px, threshold {thr:g} px: dropout %', dr,
+                  float(r['dropout']) if r else None, 0.05)
+    else:
+        flag('Exp G3', 'expG3_threshold.csv present', False, 'present', 'missing')
+
+
 def check_repro(outputs, backup):
     """Trial-by-trial comparison of the new Monte Carlo CSVs with the old ones."""
     if not backup or not backup.exists():
@@ -341,10 +386,9 @@ def check_repro(outputs, backup):
 
 
 NOT_COVERED = [
-    'Closed-loop 12-seed table (tab:closedloop): docking step 42.7, delta-v 2.562 m/s, nav RMSE 0.345 m, dropout 36.3 %',
-    'NIS consistency: mean 6.044, CI [5.887, 6.113], 0.97 % above chi2_0.99; 6.82 / 5.77 ablations',
-    'OpenCV cross-checks (factor 1.2 vs SOLVEPNP_EPNP; LM matches cv2 to 4 dp; coplanar subsets 0.0000 deg; 3 % of samples)',
-    'MPC reproduces LQR to 4.8e-7; unsaturated LQR command up to 1.77 m/s^2; "ninety times u_max at 30 m"',
+    'Numbers no experiment script prints (12-seed table, NIS and its ablations, OpenCV cross-checks,',
+    'fixed-trajectory ablation, untuned LQR) are checked by reproduce/verify_extra_claims.py;',
+    'the MPC formulation and solver accuracy by reproduce/check_mpc_solver.py.',
 ]
 
 
@@ -356,12 +400,12 @@ def main():
     a = ap.parse_args()
 
     check_tests(a.logs); check_A(a.logs); check_B(a.logs); check_C(a.logs)
-    check_D(a.logs); check_E(a.logs); check_F(a.logs, a.outputs)
+    check_D(a.logs); check_E(a.logs); check_F(a.logs, a.outputs); check_G(a.outputs)
     check_repro(a.outputs, a.backup)
 
     counts = {k: sum(r[0] == k for r in ROWS) for k in ('PASS', 'CLOSE', 'FAIL', 'INFO')}
     print('=' * 100)
-    print('CLAIMS CHECK -- "Vision-Based Closed-Loop Spacecraft Rendezvous: Measurement Availability as the Binding Constraint"')
+    print('CLAIMS CHECK -- "Vision-Based Closed-Loop Spacecraft Rendezvous: Measurement Availability as a Limiting Constraint"')
     print('=' * 100)
     print(f"PASS {counts['PASS']}   CLOSE {counts['CLOSE']}   FAIL {counts['FAIL']}   INFO {counts['INFO']}")
     print()
@@ -381,7 +425,7 @@ def main():
             print(f'  {sec}'); sec_prev = sec
         print(f'     ok  {cl:<62} paper {p!s:<14} rerun {r}')
     print()
-    print('--- NOT checked by this script (numbers come from tests/notebooks, not the experiment scripts) ---')
+    print('--- Checked elsewhere ---')
     for s in NOT_COVERED:
         print('  - ' + s)
     print()

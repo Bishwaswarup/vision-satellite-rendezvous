@@ -1,0 +1,44 @@
+\begin{table}[!tb]
+\caption{Measurement availability against instantaneous range for three
+minimum correspondence counts (visibility gate and RANSAC sample size), full vision--MEKF
+pipeline, $\sigma_{px} = 1.5$~px, the same 100 dispersed trials in each column.}
+\label{tab:nmin}
+\centering
+\begin{tabular}{lrrr}
+\toprule
+Range [m] & $N_{\min}=4$ & $N_{\min}=5$ & $N_{\min}=6$ \\
+\midrule
+10--50 & 100.0\% & 100.0\% & 100.0\% \\
+8--10 & 100.0\% & 100.0\% & 100.0\% \\
+6--8 & 100.0\% & 100.0\% & 100.0\% \\
+5--6 & 100.0\% & 100.0\% & 97.7\% \\
+4--5 & 99.3\% & 96.6\% & 84.8\% \\
+3--4 & 100.0\% & 90.3\% & 69.6\% \\
+2--3 & 65.7\% & 43.5\% & 28.0\% \\
+1--2 & 29.8\% & 18.3\% & 8.9\% \\
+$<1$ & 16.6\% & 6.1\% & 1.7\% \\
+\midrule
+Docking & 100/100 & 100/100 & 100/100 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[!tb]
+\caption{Causality test. The direct-measurement filter is rerun with each
+measurement withheld at the availability the vision pipeline achieved at the same range;
+100 paired trials per row. Terminal range: median [95th percentile].}
+\label{tab:causality}
+\centering
+\begin{tabular}{llrrr}
+\toprule
+$\sigma_{px}$ & Configuration & Dropout & Terminal range [m] & Docking \\
+\midrule
+1.5 & vision + MEKF & 33.3\% & 0.37 [0.89] & 100/100 [96,\,100] \\
+1.5 & direct + MEKF & 0.0\% & 0.54 [0.98] & 100/100 [96,\,100] \\
+1.5 & direct + MEKF, availability-matched dropout & 45.2\% & 0.73 [0.99] & 100/100 [96,\,100] \\
+4.0 & vision + MEKF & 55.4\% & 0.47 [24.46] & 85/100 [77,\,91] \\
+4.0 & direct + MEKF & 0.0\% & 0.54 [0.98] & 100/100 [96,\,100] \\
+4.0 & direct + MEKF, availability-matched dropout & 78.9\% & 0.89 [1.99] & 77/100 [68,\,84] \\
+\bottomrule
+\end{tabular}
+\end{table}

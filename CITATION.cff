@@ -29,7 +29,7 @@ keywords:
   - model predictive control
 preferred-citation:
   type: article
-  title: "Vision-Based Closed-Loop Spacecraft Rendezvous: Measurement Availability as the Binding Constraint"
+  title: "Vision-Based Closed-Loop Spacecraft Rendezvous: Measurement Availability as a Limiting Constraint"
   authors:
     - family-names: Nayak
       given-names: Bishwaswarup
