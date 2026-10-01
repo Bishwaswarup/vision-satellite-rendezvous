@@ -54,7 +54,7 @@ them skip when they are absent.
 
 ```bash
 python main.py check        # 10-second smoke test of every subsystem
-python main.py test         # 174 tests (a few skip without the extras)
+python main.py test         # 175 tests (a few skip without the extras)
 python main.py figures      # experiments A-F  ->  outputs/*.png
 python main.py animate      # closed-loop GIF + summary sheet
 python main.py dualview     # camera feed + 3-D LVLH view, side by side
@@ -64,8 +64,9 @@ python main.py all          # everything, in order
 
 Every command takes `--help`. `main.py figures --only D,E` runs a subset;
 `main.py animate --no-vision --full-run` renders the estimator-isolation case;
-`main.py montecarlo --trials 100 --noise-trials 40 --jobs 4` runs the full campaign
-(about 8 minutes on two cores) and writes per-trial CSVs plus `outputs/mc_tables.tex`.
+`main.py montecarlo --trials 100 --noise-trials 100 --jobs 4` runs the full campaign
+(about 8 minutes with `--jobs 6` on an 8-core laptop) and writes per-trial CSVs plus
+`outputs/mc_tables.tex`.
 
 ### Monte Carlo
 
@@ -82,7 +83,7 @@ score intervals, because a normal interval on 24/25 reaches above 100 %.
 The campaign's headline reducer is `availability_profile()`: per-step measurement
 availability binned by *instantaneous* range. Binning by initial range says
 nothing, since every trial that closes traverses the whole interval. Pooled over
-3887 steps of 100 trials, availability is 100 % beyond 6 m and 1.8 % inside 1 m —
+3915 steps of 100 trials, availability is 100 % beyond 6 m and 1.7 % inside 1 m —
 the knee sits exactly at the closed-form fill range z_fill = fL/W = 6.25 m.
 
 All figures are written to `outputs/` in **print-safe monochrome** — series are
@@ -168,7 +169,8 @@ simulation/
   montecarlo.py          dispersed Monte Carlo campaign driver
 
 experiments/             experiment_A ... experiment_F - the paper's figures
-tests/                   174 unit tests
+tests/                   175 unit tests
+reproduce/               rerun everything and check every number quoted in the paper
 notebooks/phase7_demo.py Phase-7 walkthrough figures
 ```
 
@@ -275,10 +277,36 @@ Stated plainly, because a simulator's credibility rests on what it admits.
 | Target inertia | diag(1176, 6988, 6988) kg m^2, x = symmetry axis | `estimator/state.py` |
 | Keypoint noise | 1.5 px 1-sigma | `SimConfig.pixel_noise_std` |
 | Disturbance | 5e-4 m/s^2 1-sigma per axis | `SimConfig.disturb_accel_std` |
-| Seeds | 42 for A-E; 0...24 and 0...19 for F | experiment scripts |
+| Seeds | 42 for A-E; F: one `SeedSequence(20260901)` spawned per trial | experiment scripts, `simulation/montecarlo.py` |
 
 Note the two reference orbits: Experiment A validates the dynamics at 500 km while
-every other experiment runs at 400 km. Unify them before publication.
+every other experiment runs at 400 km.
+
+### Reproducing the paper
+
+```bash
+bash setup.sh                         # once
+bash reproduce/rerun_all.sh           # tests + experiments A-F, ~15 min (JOBS=8 for more cores)
+.venv/bin/python reproduce/determinism_check.py   # optional, ~1 min
+```
+
+`rerun_all.sh` backs up `outputs/`, reruns the unit tests and all six experiments
+(Monte Carlo: 100 trials per configuration, 100 per noise level), and then
+`check_claims.py` compares about 200 numbers quoted in the paper with the fresh output
+and writes `reproduce/claims_report.txt`. The figures, the per-trial Monte Carlo
+records (`outputs/mc_*.csv`) and the generated tables (`outputs/mc_tables.tex`)
+behind the paper are committed, so they can also be inspected without a rerun.
+
+**Platform.** The published numbers were produced on macOS with Python 3.11.9,
+NumPy 2.4.6 and SciPy 1.17.1. On a given platform every run is bit-for-bit
+deterministic, serial or parallel (`determinism_check.py` verifies this). Across
+CPU architectures or linear-algebra libraries, results that do not involve the camera
+agree to about 1e-9, but vision-in-the-loop trials can differ: a keypoint lying on the
+visibility boundary can be gated in on one platform and out on another, which changes
+the length of that step's noise draw and hence every later draw in the trial. Such a
+trial follows a different but statistically equivalent trajectory, so campaign
+statistics agree within their confidence intervals, while individual cells (most
+visibly tail percentiles) do not match digit for digit.
 
 Software: numpy >= 1.26, scipy >= 1.12, matplotlib >= 3.8, pytest >= 8.0.
 `vispy` and `PyOpenGL` are optional, used only by the GPU renderer and its tests,
@@ -290,7 +318,7 @@ it as a reference and skip without it.
 ## Testing
 
 ```bash
-python main.py test              # all 174
+python main.py test              # all 175
 python main.py test -k epnp      # a subset
 ```
 
@@ -310,6 +338,10 @@ defect it guards and confirming that it fails.
 
 ## License and citation
 
-Research code accompanying work in preparation. If you use it, please cite the
-repository and open an issue describing what you needed — the interfaces are still
-moving.
+Released under the [MIT License](LICENSE).
+
+The paper, *Vision-Based Closed-Loop Spacecraft Rendezvous: Measurement Availability
+as the Binding Constraint* (B. Nayak), is under review. A preprint is available on
+Zenodo: https://doi.org/10.5281/zenodo.22062059. Citation metadata for both the
+software and the paper is in [`CITATION.cff`](CITATION.cff) (GitHub's "Cite this
+repository" button reads it).

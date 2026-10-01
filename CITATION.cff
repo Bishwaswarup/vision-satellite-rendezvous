@@ -1,0 +1,39 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite both the software and the paper below."
+title: "vision-satellite-rendezvous: a closed-loop simulation framework for vision-based spacecraft rendezvous"
+abstract: >-
+  Closed-loop simulation framework for vision-based autonomous rendezvous with a
+  tumbling, non-cooperative target. Couples Hill-Clohessy-Wiltshire relative
+  dynamics, torque-free target attitude propagation, a monocular keypoint front
+  end, RANSAC-EPnP pose estimation with manifold refinement, a multiplicative
+  extended Kalman filter, and LQR and receding-horizon controllers.
+type: software
+authors:
+  - family-names: Nayak
+    given-names: Bishwaswarup
+    affiliation: "Indian Institute of Science, Bengaluru"
+    email: bishwaswarup@iisc.ac.in
+license: MIT
+version: "1.1.0"
+date-released: "2026-10-01"
+url: "https://github.com/Bishwaswarup/vision-satellite-rendezvous"
+repository-code: "https://github.com/Bishwaswarup/vision-satellite-rendezvous"
+keywords:
+  - spacecraft rendezvous
+  - relative navigation
+  - monocular vision
+  - measurement availability
+  - EPnP
+  - RANSAC
+  - multiplicative extended Kalman filter
+  - model predictive control
+preferred-citation:
+  type: article
+  title: "Vision-Based Closed-Loop Spacecraft Rendezvous: Measurement Availability as the Binding Constraint"
+  authors:
+    - family-names: Nayak
+      given-names: Bishwaswarup
+      affiliation: "Indian Institute of Science, Bengaluru"
+  journal: "Advances in Space Research"
+  status: submitted
+  year: 2026

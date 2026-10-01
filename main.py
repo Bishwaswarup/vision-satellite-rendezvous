@@ -353,8 +353,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help='dispersed Monte Carlo campaign + noise ablation')
     s.add_argument('--trials', type=int, default=100,
                    help='trials per configuration (default 100)')
-    s.add_argument('--noise-trials', type=int, default=40,
-                   help='trials per pixel-noise level (default 40)')
+    s.add_argument('--noise-trials', type=int, default=100,
+                   help='trials per pixel-noise level (default 100)')
     s.add_argument('--jobs', type=int, default=1,
                    help='parallel worker processes (default 1)')
     s.add_argument('--seed', type=int, default=20260901,

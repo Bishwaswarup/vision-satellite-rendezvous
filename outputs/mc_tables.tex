@@ -1,0 +1,33 @@
+\begin{table}[t]
+\centering
+\caption{Dispersed Monte Carlo campaign, $N = 100$ trials per configuration drawn from a common seed sequence so the three configurations are compared trial-by-trial. Docking success is reported with a Wilson 95\,\% score interval.}
+\label{tab:mc_configs}
+\begin{tabular}{lrrrr}
+\toprule
+Configuration & $N$ & Final range [m] & $\Delta v$ [m/s] & Docking [\%] \\
+\midrule
+perfect state & 100 & $0.33$ [0.13,\,0.84] & $2.53 \pm 0.80$ & $100$ [96,\,100] \\
+EKF, direct & 100 & $0.54$ [0.24,\,0.98] & $2.65 \pm 0.81$ & $100$ [96,\,100] \\
+vision + EKF & 100 & $0.37$ [0.11,\,0.89] & $2.53 \pm 0.80$ & $100$ [96,\,100] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Pixel-noise ablation, $N = 100$ paired trials per level.}
+\label{tab:mc_noise}
+\begin{tabular}{lrrrr}
+\toprule
+Configuration & $N$ & Final range [m] & $\Delta v$ [m/s] & Docking [\%] \\
+\midrule
+vision + EKF $\cdot$ pixel\_noise\_std=0.3 & 100 & $0.35$ [0.10,\,0.90] & $2.53 \pm 0.80$ & $100$ [96,\,100] \\
+vision + EKF $\cdot$ pixel\_noise\_std=0.7 & 100 & $0.36$ [0.09,\,0.97] & $2.53 \pm 0.80$ & $100$ [96,\,100] \\
+vision + EKF $\cdot$ pixel\_noise\_std=1.0 & 100 & $0.35$ [0.08,\,0.89] & $2.52 \pm 0.79$ & $100$ [96,\,100] \\
+vision + EKF $\cdot$ pixel\_noise\_std=1.5 & 100 & $0.37$ [0.11,\,0.89] & $2.53 \pm 0.80$ & $100$ [96,\,100] \\
+vision + EKF $\cdot$ pixel\_noise\_std=2.0 & 100 & $0.37$ [0.11,\,0.88] & $2.53 \pm 0.82$ & $99$ [95,\,100] \\
+vision + EKF $\cdot$ pixel\_noise\_std=3.0 & 100 & $0.38$ [0.13,\,0.99] & $2.51 \pm 0.83$ & $96$ [90,\,98] \\
+vision + EKF $\cdot$ pixel\_noise\_std=4.0 & 100 & $0.47$ [0.14,\,24.46] & $2.57 \pm 0.91$ & $85$ [77,\,91] \\
+\bottomrule
+\end{tabular}
+\end{table}

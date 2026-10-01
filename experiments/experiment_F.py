@@ -239,8 +239,8 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[1])
     ap.add_argument('--trials', type=int, default=100,
                     help='trials per configuration in Study 1 (default 100)')
-    ap.add_argument('--noise-trials', type=int, default=40,
-                    help='trials per noise level in Study 2 (default 40)')
+    ap.add_argument('--noise-trials', type=int, default=100,
+                    help='trials per noise level in Study 2 (default 100)')
     ap.add_argument('--jobs', type=int, default=1,
                     help='parallel worker processes (default 1)')
     ap.add_argument('--seed', type=int, default=20260901,

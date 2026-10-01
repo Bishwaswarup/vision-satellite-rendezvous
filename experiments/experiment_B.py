@@ -149,11 +149,26 @@ def stats(vals_list, scale=1.0):
         stds.append(a.std()  if len(a) else np.nan)
     return np.array(means), np.array(stds)
 
-ep_tm, ep_ts = stats(results['epnp']['t'],  scale=100)    # cm
+
+def stats_rmse(vals_list, scale=1.0):
+    """Per-sigma RMSE and std from list-of-lists.
+
+    The translation panel plots RMSE so that the figure and the results table
+    report the same statistic; the rotation and reprojection panels plot the
+    mean, which is what the table reports for those quantities.
+    """
+    rmses, stds = [], []
+    for v in vals_list:
+        a = np.array(v) * scale
+        rmses.append(np.sqrt(np.mean(a**2)) if len(a) else np.nan)
+        stds.append(a.std() if len(a) else np.nan)
+    return np.array(rmses), np.array(stds)
+
+ep_tm, ep_ts = stats_rmse(results['epnp']['t'], scale=100)   # cm, RMSE
 ep_rm, ep_rs = stats(results['epnp']['r'])                # deg
 ep_rp_m, ep_rp_s = stats(results['epnp']['rp'])           # px
 
-gn_tm, gn_ts = stats(results['gn']['t'],   scale=100)
+gn_tm, gn_ts = stats_rmse(results['gn']['t'],  scale=100)    # cm, RMSE
 gn_rm, gn_rs = stats(results['gn']['r'])
 gn_rp_m, gn_rp_s = stats(results['gn']['rp'])
 
@@ -171,7 +186,7 @@ def twin_lines(ax, x, m1, s1, m2, s2, lab1, lab2):
                   marker='s', markersize=4.5, label=lab2)
     ax.fill_between(x, m2-s2, m2+s2, color=C2, alpha=ALPHA_BAND)
     # ±1σ proxy patch for legend
-    band = mpatches.Patch(facecolor=MUTED, alpha=0.30, label='±1σ band')
+    band = mpatches.Patch(facecolor=MUTED, alpha=0.30, label='±1σ of per-trial error')
     ax.legend(handles=[l1, l2, band],
               fontsize=8.5, facecolor=PANEL, edgecolor=MUTED,
               labelcolor=TEXT, loc='upper left')
@@ -179,7 +194,7 @@ def twin_lines(ax, x, m1, s1, m2, s2, lab1, lab2):
 # panel 1 — translation
 twin_lines(axes[0], sigmas,
            ep_tm, ep_ts, gn_tm, gn_ts,
-           'EPnP (raw)', 'EPnP + GN')
+           'EPnP (raw)', 'EPnP + LM')
 style_ax(axes[0], 'Translation RMSE  [cm]', 'Translation error')
 axes[0].set_xlim(sigmas[0] - 0.05, sigmas[-1] + 0.1)
 axes[0].set_xticks(sigmas)
@@ -187,16 +202,16 @@ axes[0].set_xticks(sigmas)
 # panel 2 — rotation
 twin_lines(axes[1], sigmas,
            ep_rm, ep_rs, gn_rm, gn_rs,
-           'EPnP (raw)', 'EPnP + GN')
-style_ax(axes[1], 'Rotation RMSE  [deg]', 'Rotation error')
+           'EPnP (raw)', 'EPnP + LM')
+style_ax(axes[1], 'Rotation error, mean  [deg]', 'Rotation error')
 axes[1].set_xlim(sigmas[0] - 0.05, sigmas[-1] + 0.1)
 axes[1].set_xticks(sigmas)
 
 # panel 3 — reprojection
 twin_lines(axes[2], sigmas,
            ep_rp_m, ep_rp_s, gn_rp_m, gn_rp_s,
-           'EPnP (raw)', 'EPnP + GN')
-style_ax(axes[2], 'Reprojection error  [px]', 'Reprojection error')
+           'EPnP (raw)', 'EPnP + LM')
+style_ax(axes[2], 'Reprojection error, mean  [px]', 'Reprojection error')
 axes[2].set_xlim(sigmas[0] - 0.05, sigmas[-1] + 0.1)
 axes[2].set_xticks(sigmas)
 
