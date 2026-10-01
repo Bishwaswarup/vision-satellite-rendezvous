@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23079336.svg)](https://doi.org/10.5281/zenodo.23079336)
+
 # Vision-Based Satellite Rendezvous Simulator
 
 A closed-loop GNC simulation of autonomous rendezvous with a tumbling, non-cooperative
@@ -352,6 +354,7 @@ Released under the [MIT License](LICENSE).
 
 The paper, *Vision-Based Closed-Loop Spacecraft Rendezvous: Measurement Availability
 as a Limiting Constraint* (B. Nayak), is under review. A preprint is available on
-Zenodo: https://doi.org/10.5281/zenodo.22062059. Citation metadata for both the
+Zenodo: https://doi.org/10.5281/zenodo.23079349. The exact code and data version the
+paper uses (release v1.1.0) is archived at https://doi.org/10.5281/zenodo.23079336. Citation metadata for both the
 software and the paper is in [`CITATION.cff`](CITATION.cff) (GitHub's "Cite this
 repository" button reads it).

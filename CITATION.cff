@@ -15,6 +15,14 @@ authors:
     email: bishwaswarup@iisc.ac.in
 license: MIT
 version: "1.1.0"
+doi: "10.5281/zenodo.23079336"
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.23079336"
+    description: "Archived release v1.1.0 (Zenodo)"
+  - type: doi
+    value: "10.5281/zenodo.23079349"
+    description: "Preprint of the accompanying paper (Zenodo)"
 date-released: "2026-10-01"
 url: "https://github.com/Bishwaswarup/vision-satellite-rendezvous"
 repository-code: "https://github.com/Bishwaswarup/vision-satellite-rendezvous"
