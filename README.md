@@ -1,4 +1,7 @@
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23079336.svg)](https://doi.org/10.5281/zenodo.23079336)
+[![Preprint DOI](https://img.shields.io/badge/preprint-10.5281%2Fzenodo.23079349-blue)](https://doi.org/10.5281/zenodo.23079349)
+[![Software DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23079336.svg)](https://doi.org/10.5281/zenodo.23079336)
+![Tests](https://img.shields.io/badge/tests-175-2ea44f)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 # Vision-Based Satellite Rendezvous Simulator
 
@@ -9,12 +12,45 @@ Kalman filtering, and constrained optimal control.
 
 **Bishwaswarup Nayak** — Indian Institute of Science, Bengaluru 560012, India
 
+> **Paper:** *Vision-Based Closed-Loop Spacecraft Rendezvous: Measurement Availability as a
+> Limiting Constraint*, under review. Preprint:
+> [doi:10.5281/zenodo.23079349](https://doi.org/10.5281/zenodo.23079349) ·
+> code and data of the paper (release v1.1.0):
+> [doi:10.5281/zenodo.23079336](https://doi.org/10.5281/zenodo.23079336)
+
+---
+
+## Results at a glance
+
+The camera viewpoint at each control step is a consequence of the previous pose solution,
+so a lost measurement propagates through the loop. Over 100 dispersed Monte Carlo trials:
+
+| | |
+|---|---|
+| **What limits the loop** | measurement *availability*, not pose accuracy |
+| Pose solve succeeds | 100 % of steps beyond 6 m, 1.7 % inside 1 m (3,915 control steps) |
+| Predicted knee | field-of-view fill range z_fill = fL/W = **6.25 m**; first range bin below 100 % is 5–6 m |
+| Image noise 0.3 → 3.0 px | median terminal range changes by 3 cm |
+| Image noise 4 px | docking 85/100: a threshold failure, not a drift |
+| Causality test | withholding measurements from a perfect sensor on the same schedule: 77/100 dock |
+| Noise-scaled RANSAC gate (≈ 3σ) | docking at 4 px recovers to 94/100 |
+| RANSAC–EPnP | solves all 200 trials up to 30 % outliers; bare EPnP fails 99 % at 5 % |
+| MEKF consistency | mean NIS 6.044 over 3,600 updates, inside the 95 % χ² bounds [5.887, 6.113] |
+
+<p align="center"><img src="outputs/expF_fig10_availability.png" width="90%"></p>
+
+*(a) Measurement availability against instantaneous range; the dotted line is z_fill. (b) Mean keypoints
+in frame; below six the pose solver has too few correspondences.*
+
+The design margin that matters is field of view, keypoint redundancy and noise-aware outlier
+gating at short range, not sub-pixel feature localisation. Details below and in the paper.
+
 ---
 
 ## Setup
 
 ```bash
-git clone <this repo>
+git clone https://github.com/Bishwaswarup/vision-satellite-rendezvous.git
 cd vision-satellite-rendezvous
 bash setup.sh                    # creates .venv/ and installs everything
 source .venv/bin/activate
@@ -26,7 +62,8 @@ repository**, installs the pinned requirements, and then verifies the install by
 importing each package. Options: `--gpu` adds the optional vispy renderer, `--dev`
 adds OpenCV (used only as a reference by a few tests), `--recreate` starts clean.
 
-### PyCharm
+<details>
+<summary>PyCharm interpreter setup</summary>
 
 PyCharm looks for a virtual environment in the **project root**. If it reports no
 interpreter:
@@ -48,6 +85,8 @@ Two things to know if you inherited an older checkout:
   paths and its `site-packages` holds wheels compiled for one OS and CPU
   architecture, so it cannot be copied between machines or committed to git — hence
   the `.gitignore` entry. Always recreate it locally with `setup.sh`.
+
+</details>
 
 `vispy`, `PyOpenGL` and `opencv-python-headless` are optional; the tests that need
 them skip when they are absent.
